@@ -14,6 +14,19 @@ from xilma.utils import anonymize_user_id, log_incoming_message, new_reference_i
 logger = logging.getLogger("xilma.handlers.user")
 
 
+def _log_incoming_if_config(
+    update: Update, config: ConfigStore | None, reference_id: str
+) -> None:
+    if config and update.message:
+        log_incoming_message(
+            update,
+            reference_id=reference_id,
+            anonymize=config.data.log_anonymize_user_ids,
+            include_body=config.data.log_message_body,
+            include_headers=config.data.log_message_headers,
+        )
+
+
 def _log_user_message(update: Update, config: ConfigStore, reference_id: str) -> None:
     user_id = update.effective_user.id if update.effective_user else 0
     log_user = (
@@ -80,50 +93,33 @@ async def _ensure_sponsor_membership(
     return False
 
 
+async def _log_and_check_membership(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    reference_id: str,
+) -> bool:
+    config: ConfigStore | None = context.application.bot_data.get("config")
+    _log_incoming_if_config(update, config, reference_id)
+    return await _ensure_sponsor_membership(update, context, reference_id)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reference_id = new_reference_id()
-    config: ConfigStore | None = context.application.bot_data.get("config")
-    if config and update.message:
-        log_incoming_message(
-            update,
-            reference_id=reference_id,
-            anonymize=config.data.log_anonymize_user_ids,
-            include_body=config.data.log_message_body,
-            include_headers=config.data.log_message_headers,
-        )
-    if not await _ensure_sponsor_membership(update, context, reference_id):
+    if not await _log_and_check_membership(update, context, reference_id):
         return
     await reply_text(update, texts.START_MESSAGE, context, reference_id=reference_id)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reference_id = new_reference_id()
-    config: ConfigStore | None = context.application.bot_data.get("config")
-    if config and update.message:
-        log_incoming_message(
-            update,
-            reference_id=reference_id,
-            anonymize=config.data.log_anonymize_user_ids,
-            include_body=config.data.log_message_body,
-            include_headers=config.data.log_message_headers,
-        )
-    if not await _ensure_sponsor_membership(update, context, reference_id):
+    if not await _log_and_check_membership(update, context, reference_id):
         return
     await reply_text(update, texts.HELP_MESSAGE, context, reference_id=reference_id)
 
 
 async def new_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reference_id = new_reference_id()
-    config: ConfigStore | None = context.application.bot_data.get("config")
-    if config and update.message:
-        log_incoming_message(
-            update,
-            reference_id=reference_id,
-            anonymize=config.data.log_anonymize_user_ids,
-            include_body=config.data.log_message_body,
-            include_headers=config.data.log_message_headers,
-        )
-    if not await _ensure_sponsor_membership(update, context, reference_id):
+    if not await _log_and_check_membership(update, context, reference_id):
         return
     context.user_data["history"] = []
     await reply_text(update, texts.CHAT_RESET, context, reference_id=reference_id)
@@ -132,14 +128,7 @@ async def new_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reference_id = new_reference_id()
     config: ConfigStore | None = context.application.bot_data.get("config")
-    if config and update.message:
-        log_incoming_message(
-            update,
-            reference_id=reference_id,
-            anonymize=config.data.log_anonymize_user_ids,
-            include_body=config.data.log_message_body,
-            include_headers=config.data.log_message_headers,
-        )
+    _log_incoming_if_config(update, config, reference_id)
 
     if config is None:
         raise RuntimeError("Config missing")
@@ -167,16 +156,7 @@ async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def unsupported(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reference_id = new_reference_id()
-    config: ConfigStore | None = context.application.bot_data.get("config")
-    if config and update.message:
-        log_incoming_message(
-            update,
-            reference_id=reference_id,
-            anonymize=config.data.log_anonymize_user_ids,
-            include_body=config.data.log_message_body,
-            include_headers=config.data.log_message_headers,
-        )
-    if not await _ensure_sponsor_membership(update, context, reference_id):
+    if not await _log_and_check_membership(update, context, reference_id):
         return
     await reply_text(update, texts.CHAT_ONLY_TEXT, context, reference_id=reference_id)
 

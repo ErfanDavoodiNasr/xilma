@@ -23,6 +23,19 @@ def _clean_channel(raw: str) -> str:
     return raw.strip()
 
 
+def _normalize_channels(raw_items: Iterable[str]) -> list[SponsorChannel]:
+    channels: list[SponsorChannel] = []
+    for raw in raw_items:
+        try:
+            channel = normalize_channel(raw)
+        except ValueError as exc:
+            raise UserVisibleError(texts.SPONSOR_INVALID) from exc
+        if any(existing.chat_id == channel.chat_id for existing in channels):
+            continue
+        channels.append(channel)
+    return channels
+
+
 def normalize_channel(raw: str) -> SponsorChannel:
     cleaned = _clean_channel(raw)
     if not cleaned:
@@ -48,16 +61,7 @@ def normalize_channel(raw: str) -> SponsorChannel:
 
 def parse_channels_csv(raw_csv: str) -> list[SponsorChannel]:
     raw_items = [item.strip() for item in raw_csv.split(",") if item.strip()]
-    channels: list[SponsorChannel] = []
-    for raw in raw_items:
-        try:
-            channel = normalize_channel(raw)
-        except ValueError as exc:
-            raise UserVisibleError(texts.SPONSOR_INVALID) from exc
-        if any(existing.chat_id == channel.chat_id for existing in channels):
-            continue
-        channels.append(channel)
-    return channels
+    return _normalize_channels(raw_items)
 
 
 class SponsorService:
@@ -70,16 +74,7 @@ class SponsorService:
         return list(self._channels)
 
     def set_channels(self, raw_list: list[str]) -> None:
-        channels: list[SponsorChannel] = []
-        for raw in raw_list:
-            try:
-                channel = normalize_channel(raw)
-            except ValueError as exc:
-                raise UserVisibleError(texts.SPONSOR_INVALID) from exc
-            if any(existing.chat_id == channel.chat_id for existing in channels):
-                continue
-            channels.append(channel)
-        self._channels = channels
+        self._channels = _normalize_channels(raw_list)
 
     def set_channels_csv(self, raw_csv: str) -> None:
         self._channels = parse_channels_csv(raw_csv)

@@ -300,7 +300,7 @@ def _normalize_channel(raw: str) -> str:
 
 
 def _validate_channels(raw: str, optional: bool) -> list[str]:
-    if optional and raw.strip().lower() in {"", "unset", "none", "null", "-"}:
+    if optional and _parse_optional(raw) is None:
         return []
     items = [item.strip() for item in raw.split(",") if item.strip()]
     channels: list[str] = []
