@@ -32,6 +32,7 @@ def _build_sponsor_markup(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardM
 async def ensure_sponsor_membership(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
+    reference_id: str | None = None,
 ) -> bool:
     if is_admin(update, context):
         return True
@@ -47,5 +48,11 @@ async def ensure_sponsor_membership(
         return True
 
     markup = _build_sponsor_markup(context)
-    await reply_text(update, texts.SPONSOR_REQUIRED, context, reply_markup=markup)
+    await reply_text(
+        update,
+        texts.SPONSOR_REQUIRED,
+        context,
+        reference_id=reference_id,
+        reply_markup=markup,
+    )
     return False

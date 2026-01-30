@@ -60,6 +60,8 @@ DEFAULT_MODEL="gpt-4o"
 LOG_LEVEL="INFO"
 # LOG_FORMAT="text" | "json" | "both" | "json,text"
 LOG_ANONYMIZE_USER_IDS="true"
+LOG_MESSAGE_BODY="true"
+LOG_MESSAGE_HEADERS="true"
 ```
 
 Then run:

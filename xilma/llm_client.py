@@ -41,6 +41,7 @@ class LLMClient:
         max_tokens: int | None = None,
         top_p: float | None = None,
         user: str | None = None,
+        reference_id: str | None = None,
     ) -> LLMResponse:
         provider_name = provider or self._default_provider
         model_name = model or self._default_model
@@ -50,7 +51,7 @@ class LLMClient:
 
         self._logger.info(
             "routing_request",
-            extra={"provider": provider_name, "model": model_name},
+            extra={"provider": provider_name, "model": model_name, "reference_id": reference_id},
         )
 
         primary_provider = self._providers[provider_name]
@@ -70,6 +71,7 @@ class LLMClient:
                     "provider": provider_name,
                     "model": model_name,
                     "status": exc.status_code,
+                    "reference_id": reference_id,
                 },
             )
             if self._fallback_provider or self._fallback_model:
@@ -78,7 +80,11 @@ class LLMClient:
                 if fallback_provider in self._providers:
                     self._logger.info(
                         "routing_fallback",
-                        extra={"provider": fallback_provider, "model": fallback_model},
+                        extra={
+                            "provider": fallback_provider,
+                            "model": fallback_model,
+                            "reference_id": reference_id,
+                        },
                     )
                     fallback = self._providers[fallback_provider]
                     return await fallback.generate_response(

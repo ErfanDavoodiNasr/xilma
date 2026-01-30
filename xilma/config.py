@@ -29,6 +29,8 @@ class Settings:
     log_level: str
     log_format: str
     anonymize_user_ids: bool
+    log_message_body: bool
+    log_message_headers: bool
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -116,6 +118,8 @@ def load_settings() -> Settings:
     log_level = os.getenv("LOG_LEVEL", "INFO")
     log_format = os.getenv("LOG_FORMAT", "json")
     anonymize_user_ids = _get_bool(os.getenv("LOG_ANONYMIZE_USER_IDS"), True)
+    log_message_body = _get_bool(os.getenv("LOG_MESSAGE_BODY"), True)
+    log_message_headers = _get_bool(os.getenv("LOG_MESSAGE_HEADERS"), True)
 
     return Settings(
         telegram_bot_token=telegram_bot_token,
@@ -138,4 +142,6 @@ def load_settings() -> Settings:
         log_level=log_level,
         log_format=log_format,
         anonymize_user_ids=anonymize_user_ids,
+        log_message_body=log_message_body,
+        log_message_headers=log_message_headers,
     )
