@@ -18,8 +18,7 @@ from xilma.handlers import admin as admin_handlers
 from xilma.handlers import errors as error_handlers
 from xilma.handlers import user as user_handlers
 from xilma.logging_setup import setup_logging
-from xilma.llm_client import LLMClient
-from xilma.providers.avalai import AvalAIProvider
+from xilma.ai_client import AIClient
 from xilma.services.sponsor import SponsorService
 
 
@@ -27,16 +26,16 @@ logger = logging.getLogger("xilma.app")
 
 
 async def _on_startup(app: Application) -> None:
-    llm_client = app.bot_data.get("llm_client")
-    if llm_client:
-        await llm_client.start()
+    ai_client = app.bot_data.get("ai_client")
+    if ai_client:
+        await ai_client.start()
     logger.info("bot_started")
 
 
 async def _on_shutdown(app: Application) -> None:
-    llm_client = app.bot_data.get("llm_client")
-    if llm_client:
-        await llm_client.close()
+    ai_client = app.bot_data.get("ai_client")
+    if ai_client:
+        await ai_client.close()
     logger.info("bot_stopped")
 
 
@@ -44,22 +43,12 @@ def build_application() -> Application:
     config_store = load_config()
     setup_logging(config_store.data.log_level, config_store.data.log_format)
 
-    providers = {
-        "avalai": AvalAIProvider(
-            api_key=config_store.data.avalai_api_key or "",
-            base_url=config_store.data.avalai_base_url,
-            timeout=30.0,
-            max_retries=config_store.data.max_retries,
-            retry_backoff=config_store.data.retry_backoff,
-        )
-    }
-
-    llm_client = LLMClient(
-        providers=providers,
-        default_provider="avalai",
-        default_model=config_store.data.default_model,
-        fallback_provider=None,
-        fallback_model=config_store.data.fallback_model,
+    ai_client = AIClient(
+        api_key=config_store.data.api_key or "",
+        base_url=config_store.data.base_url,
+        timeout=30.0,
+        max_retries=config_store.data.max_retries,
+        retry_backoff=config_store.data.retry_backoff,
     )
 
     application = (
@@ -73,7 +62,7 @@ def build_application() -> Application:
     sponsor_service = SponsorService(config_store.data.sponsor_channels)
 
     application.bot_data["config"] = config_store
-    application.bot_data["llm_client"] = llm_client
+    application.bot_data["ai_client"] = ai_client
     application.bot_data["sponsor_service"] = sponsor_service
 
     admin_conversation = ConversationHandler(

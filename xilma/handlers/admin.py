@@ -447,14 +447,14 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     reference_id = new_reference_id()
     config: ConfigStore | None = context.application.bot_data.get("config")
-    llm_client = context.application.bot_data.get("llm_client")
+    ai_client = context.application.bot_data.get("ai_client")
     sponsor_service = context.application.bot_data.get("sponsor_service")
-    if config is None or llm_client is None or sponsor_service is None:
+    if config is None or ai_client is None or sponsor_service is None:
         raise RuntimeError("Config missing")
 
     settings = config.data
     include_body = settings.log_message_body
-    if pending.get("key") == "AVALAI_API_KEY":
+    if pending.get("key") == "API_KEY":
         include_body = False
     log_incoming_message(
         update,
@@ -526,17 +526,11 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # Apply runtime changes
     updated = config.data
-    provider = llm_client.get_provider("avalai")
-    if provider is not None:
-        provider.update_settings(
-            api_key=updated.avalai_api_key or "",
-            base_url=updated.avalai_base_url,
-            max_retries=updated.max_retries,
-            retry_backoff=updated.retry_backoff,
-        )
-    llm_client.update_defaults(
-        default_model=updated.default_model,
-        fallback_model=updated.fallback_model,
+    ai_client.update_settings(
+        api_key=updated.api_key or "",
+        base_url=updated.base_url,
+        max_retries=updated.max_retries,
+        retry_backoff=updated.retry_backoff,
     )
 
     if key in {"LOG_LEVEL", "LOG_FORMAT"}:

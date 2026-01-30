@@ -4,7 +4,7 @@ class UserVisibleError(Exception):
         self.message = message
 
 
-class ProviderError(Exception):
+class APIError(Exception):
     def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
         self.message = message

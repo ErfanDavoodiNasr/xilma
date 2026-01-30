@@ -2,17 +2,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import aiohttp
 
-from xilma.errors import ProviderError
-from xilma.providers.base import BaseLLMProvider, LLMResponse
+from xilma.errors import APIError
 
 
-class AvalAIProvider(BaseLLMProvider):
+@dataclass(frozen=True)
+class AIResponse:
+    content: str
+    model: str
+    usage: dict[str, Any] | None = None
+
+
+class AIClient:
     def __init__(
         self,
+        *,
         api_key: str,
         base_url: str,
         timeout: float,
@@ -22,10 +30,10 @@ class AvalAIProvider(BaseLLMProvider):
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
-        self._max_retries = max_retries
-        self._retry_backoff = retry_backoff
+        self._max_retries = max(0, max_retries)
+        self._retry_backoff = max(0.0, retry_backoff)
         self._session: aiohttp.ClientSession | None = None
-        self._logger = logging.getLogger("xilma.providers.avalai")
+        self._logger = logging.getLogger("xilma.ai")
 
     async def start(self) -> None:
         if self._session is None:
@@ -63,7 +71,7 @@ class AvalAIProvider(BaseLLMProvider):
         max_tokens: int | None = None,
         top_p: float | None = None,
         user: str | None = None,
-    ) -> LLMResponse:
+    ) -> AIResponse:
         if self._session is None:
             await self.start()
 
@@ -88,25 +96,18 @@ class AvalAIProvider(BaseLLMProvider):
                 async with self._session.post(url, json=payload, headers=headers) as resp:
                     if resp.status >= 400:
                         text = await resp.text()
-                        raise ProviderError(
-                            f"AvalAI error {resp.status}: {text}",
+                        raise APIError(
+                            f"API error {resp.status}: {text}",
                             status_code=resp.status,
                         )
                     data = await resp.json()
                 break
-            except ProviderError as exc:
-                if (
-                    exc.status_code in {429, 500}
-                    and attempt < self._max_retries
-                ):
+            except APIError as exc:
+                if exc.status_code in {429, 500} and attempt < self._max_retries:
                     delay = self._retry_backoff * (2**attempt)
                     self._logger.warning(
-                        "avalai_retry",
-                        extra={
-                            "attempt": attempt + 1,
-                            "status": exc.status_code,
-                            "delay": delay,
-                        },
+                        "request_retry",
+                        extra={"attempt": attempt + 1, "status": exc.status_code, "delay": delay},
                     )
                     await asyncio.sleep(delay)
                     continue
@@ -115,18 +116,14 @@ class AvalAIProvider(BaseLLMProvider):
                 if attempt < self._max_retries:
                     delay = self._retry_backoff * (2**attempt)
                     self._logger.warning(
-                        "avalai_retry",
-                        extra={
-                            "attempt": attempt + 1,
-                            "error": str(exc),
-                            "delay": delay,
-                        },
+                        "request_retry",
+                        extra={"attempt": attempt + 1, "error": str(exc), "delay": delay},
                     )
                     await asyncio.sleep(delay)
                     continue
-                raise ProviderError("AvalAI network error") from exc
+                raise APIError("Network error") from exc
         else:
-            raise ProviderError("AvalAI request failed")
+            raise APIError("Request failed")
 
         try:
             choice = data["choices"][0]
@@ -135,6 +132,6 @@ class AvalAIProvider(BaseLLMProvider):
             if content is None:
                 raise KeyError("content missing")
         except (KeyError, IndexError, TypeError) as exc:
-            raise ProviderError("AvalAI response format error") from exc
+            raise APIError("Response format error") from exc
 
-        return LLMResponse(content=content, model=data.get("model", model), usage=data.get("usage"))
+        return AIResponse(content=content, model=data.get("model", model), usage=data.get("usage"))

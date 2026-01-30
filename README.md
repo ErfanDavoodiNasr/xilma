@@ -1,6 +1,6 @@
-# Xilma Telegram Bot (PTB + AvalAI)
+# Xilma Telegram Bot (PTB + Single AI API)
 
-A production-ready, modular Telegram bot using `python-telegram-bot` (async) that routes user prompts to LLMs via AvalAI’s OpenAI-compatible API.
+A production-ready Telegram bot using `python-telegram-bot` (async) that routes user prompts to a OpenAI-compatible API.
 
 ## Highlights
 
@@ -8,7 +8,6 @@ A production-ready, modular Telegram bot using `python-telegram-bot` (async) tha
 - Glass-style admin panel with inline buttons
 - Persian (Farsi) UI text
 - Structured logging + safe error handling
-- LLM provider abstraction (AvalAI today, more later)
 
 ## Setup
 
@@ -27,13 +26,12 @@ pip install -r requirements.txt
 # Mandatory
 TELEGRAM_BOT_TOKEN="<telegram token>"
 ADMIN_USER_ID="<admin user id>"
+BASE_URL="<base url>"
 
 # Optional (defaults are provided; editable at runtime from /admin)
 SPONSOR_CHANNELS="@channel1,@channel2"
-AVALAI_API_KEY="<avalai api key>"
-AVALAI_BASE_URL="https://api.avalai.ir"
+API_KEY="<api key>"
 DEFAULT_MODEL="gpt-4o"
-FALLBACK_MODEL="gpt-4o-mini"
 MAX_RETRIES="1"
 RETRY_BACKOFF="0.5"
 TEMPERATURE="0.7"
@@ -63,7 +61,7 @@ python bot.py
 - `/model <name>` — انتخاب مدل پاسخ‌دهی
 - `/admin` — پنل مدیریت شیشه‌ای (فقط مدیر)
 
-`/model` accepts any AvalAI model identifier (e.g. `gpt-4o`, `gemini-2.5-pro`).
+`/model` accepts any model identifier supported by your API (e.g. `gpt-4o`).
 
 ## Admin Panel UX
 
@@ -73,12 +71,11 @@ Validation is strict (numeric limits, enums, format checks). Invalid input shows
 
 Sponsor channels are enforced for regular users. Admins are exempt.
 You can update sponsor channels from the admin panel using the `SPONSOR_CHANNELS` setting.
-The panel includes dedicated Sponsor buttons for Add / Remove / Replace.
+The panel includes dedicated Sponsor buttons for Add / Edit / Remove, plus quick add by typing.
 
 ## Architecture Overview
 
 - `xilma/config.py` — unified config store + validation
-- `xilma/providers/` — LLM provider implementations
+- `xilma/ai_client.py` — direct API client (single service)
 - `xilma/handlers/` — Telegram handlers (user + admin)
-- `xilma/llm_client.py` — unified LLM routing
 - `xilma/logging_setup.py` — structured logging

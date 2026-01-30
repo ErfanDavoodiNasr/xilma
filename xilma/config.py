@@ -21,10 +21,9 @@ class Config:
     telegram_bot_token: str
     admin_user_id: int
     sponsor_channels: list[str]
-    avalai_api_key: str | None
-    avalai_base_url: str
+    api_key: str | None
+    base_url: str
     default_model: str
-    fallback_model: str | None
     max_retries: int
     retry_backoff: float
     temperature: float | None
@@ -63,9 +62,9 @@ SETTINGS_SPECS: list[SettingSpec] = [
         optional=True,
     ),
     SettingSpec(
-        key="AVALAI_API_KEY",
-        attr="avalai_api_key",
-        label="🔑 AvalAI API Key",
+        key="API_KEY",
+        attr="api_key",
+        label="🔑 API Key",
         kind="string",
         min_len=10,
         max_len=200,
@@ -74,9 +73,9 @@ SETTINGS_SPECS: list[SettingSpec] = [
         secret=True,
     ),
     SettingSpec(
-        key="AVALAI_BASE_URL",
-        attr="avalai_base_url",
-        label="🌐 AvalAI Base URL",
+        key="BASE_URL",
+        attr="base_url",
+        label="🌐 Base URL",
         kind="string",
         min_len=10,
         max_len=200,
@@ -90,16 +89,6 @@ SETTINGS_SPECS: list[SettingSpec] = [
         min_len=2,
         max_len=80,
         regex=r"^[A-Za-z0-9._:/-]+$",
-    ),
-    SettingSpec(
-        key="FALLBACK_MODEL",
-        attr="fallback_model",
-        label="🛟 Fallback Model",
-        kind="string",
-        min_len=2,
-        max_len=80,
-        regex=r"^[A-Za-z0-9._:/-]+$",
-        optional=True,
     ),
     SettingSpec(
         key="MAX_RETRIES",
@@ -374,10 +363,9 @@ def load_config() -> ConfigStore:
         telegram_bot_token=telegram_bot_token,
         admin_user_id=admin_user_id,
         sponsor_channels=[],
-        avalai_api_key=os.getenv("AVALAI_API_KEY"),
-        avalai_base_url=os.getenv("AVALAI_BASE_URL", "https://api.avalai.ir"),
+        api_key=os.getenv("API_KEY"),
+        base_url=_parse_required_env("BASE_URL"),
         default_model=os.getenv("DEFAULT_MODEL", "gpt-4o"),
-        fallback_model=os.getenv("FALLBACK_MODEL") or None,
         max_retries=max(0, _parse_env_int("MAX_RETRIES", 1)),
         retry_backoff=max(0.0, _parse_env_float("RETRY_BACKOFF", 0.5) or 0.5),
         temperature=_parse_env_float("TEMPERATURE", None),

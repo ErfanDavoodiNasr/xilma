@@ -187,8 +187,8 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         raise UserVisibleError(texts.CHAT_ONLY_TEXT)
 
     config: ConfigStore | None = context.application.bot_data.get("config")
-    llm_client = context.application.bot_data.get("llm_client")
-    if config is None or llm_client is None:
+    ai_client = context.application.bot_data.get("ai_client")
+    if config is None or ai_client is None:
         raise RuntimeError("App not configured")
 
     _log_user_message(update, config, reference_id)
@@ -203,7 +203,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await _ensure_sponsor_membership(update, context, reference_id):
         return
 
-    if not config.data.avalai_api_key:
+    if not config.data.api_key:
         raise UserVisibleError(texts.API_KEY_MISSING)
 
     history: list[dict[str, str]] = context.user_data.get("history", [])
@@ -215,14 +215,13 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
     model_override = context.user_data.get("model")
-    response = await llm_client.generate_response(
+    response = await ai_client.generate_response(
         messages=messages,
         model=model_override or config.data.default_model,
         temperature=config.data.temperature,
         max_tokens=config.data.max_tokens,
         top_p=config.data.top_p,
         user=str(user_id) if user_id else None,
-        reference_id=reference_id,
     )
 
     await reply_text(update, response.content, context, reference_id=reference_id)
