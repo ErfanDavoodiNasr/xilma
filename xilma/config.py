@@ -180,7 +180,7 @@ SPEC_BY_KEY = {spec.key: spec for spec in SETTINGS_SPECS}
 DEFAULT_SETTINGS: dict[str, Any] = {
     "SPONSOR_CHANNELS": [],
     "API_KEY": None,
-    "BASE_URL": "https://api.openai.com",
+    "BASE_URL": "https://api.avalai.ir",
     "DEFAULT_MODEL": "gpt-4o",
     "MAX_RETRIES": 1,
     "RETRY_BACKOFF": 0.5,

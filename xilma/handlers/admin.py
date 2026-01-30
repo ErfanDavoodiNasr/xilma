@@ -371,8 +371,10 @@ async def _show_users_page(
         texts.ADMIN_USERS_TOTAL.format(count=total),
         texts.ADMIN_USERS_PAGE.format(page=page, pages=pages),
         "",
-        texts.ADMIN_USERS_PROMPT,
     ]
+    for user in users:
+        lines.append(f"- {_format_user_label(user)}")
+    lines.extend(["", texts.ADMIN_USERS_PROMPT])
 
     await _send_panel_message(
         update,
