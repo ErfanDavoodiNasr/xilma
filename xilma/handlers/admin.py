@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes, ConversationHandler
 
 from xilma import texts
-from xilma.config import SETTINGS_SPECS, ConfigStore, ConfigValidationError
+from xilma.config import (
+    SETTINGS_SPECS,
+    SPEC_BY_KEY,
+    ConfigStore,
+    ConfigValidationError,
+    serialize_setting_value,
+)
 from xilma.errors import UserVisibleError
 from xilma.logging_setup import setup_logging
 from xilma.services.sponsor import normalize_channel, parse_channels_csv
@@ -14,6 +21,7 @@ from xilma.utils import log_incoming_message, log_outgoing_message, new_referenc
 
 
 ADMIN_MENU, WAITING_INPUT = range(2)
+USERS_PAGE_SIZE = 10
 
 
 def _set_sponsor_menu_active(context: ContextTypes.DEFAULT_TYPE, active: bool) -> None:
@@ -24,7 +32,9 @@ def _set_sponsor_menu_active(context: ContextTypes.DEFAULT_TYPE, active: bool) -
 
 
 def _build_main_menu() -> InlineKeyboardMarkup:
-    keyboard: list[list[InlineKeyboardButton]] = []
+    keyboard: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text=texts.BTN_USERS, callback_data="users:menu")]
+    ]
     row: list[InlineKeyboardButton] = []
     for spec in SETTINGS_SPECS:
         row.append(InlineKeyboardButton(text=spec.label, callback_data=f"cfg:{spec.key}"))
@@ -83,10 +93,22 @@ def _build_prompt(spec_label: str, spec_kind: str, allowed: list[str] | None, op
     return "\n".join(lines)
 
 
-def _sync_sponsor_channels(config: ConfigStore, sponsor_service) -> None:
+async def _persist_setting(
+    config: ConfigStore, db, key: str, raw_value: str
+) -> None:
+    spec = SPEC_BY_KEY.get(key)
+    if spec is None:
+        raise ConfigValidationError(texts.CONFIG_INVALID_KEY)
+    config.update(key, raw_value)
+    value = getattr(config.data, spec.attr)
+    db_value = serialize_setting_value(spec, value)
+    await db.set_setting(key, db_value)
+
+
+async def _sync_sponsor_channels(config: ConfigStore, sponsor_service, db) -> None:
     channels = [channel.raw for channel in sponsor_service.list_channels()]
     csv_value = ",".join(channels)
-    config.update("SPONSOR_CHANNELS", csv_value)
+    await _persist_setting(config, db, "SPONSOR_CHANNELS", csv_value)
 
 
 def _add_sponsor_channels(sponsor_service, raw_text: str) -> None:
@@ -115,6 +137,63 @@ def _build_sponsor_select_menu(channels: list, action: str) -> InlineKeyboardMar
     ]
     keyboard.append([InlineKeyboardButton(text=texts.BTN_BACK, callback_data="sponsor:menu")])
     return InlineKeyboardMarkup(keyboard)
+
+
+def _format_user_label(user: dict[str, Any]) -> str:
+    user_id = user.get("telegram_id")
+    username = user.get("username")
+    first_name = user.get("first_name") or ""
+    last_name = user.get("last_name") or ""
+    name = " ".join(part for part in [first_name, last_name] if part)
+    if username:
+        label = f"@{username}"
+    elif name:
+        label = name
+    else:
+        label = f"User {user_id}"
+    return f"{label} ({user_id})"
+
+
+def _format_timestamp(value: Any) -> str:
+    if not value:
+        return "-"
+    try:
+        return value.isoformat(sep=" ", timespec="seconds")
+    except TypeError:
+        return str(value)
+
+
+def _build_users_menu(
+    users: list[dict[str, Any]], page: int, pages: int
+) -> InlineKeyboardMarkup:
+    keyboard: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                text=_format_user_label(user),
+                callback_data=f"users:view:{user['telegram_id']}",
+            )
+        ]
+        for user in users
+    ]
+    nav_row: list[InlineKeyboardButton] = []
+    if page > 1:
+        nav_row.append(
+            InlineKeyboardButton(text=texts.BTN_PREV, callback_data=f"users:page:{page - 1}")
+        )
+    if page < pages:
+        nav_row.append(
+            InlineKeyboardButton(text=texts.BTN_NEXT, callback_data=f"users:page:{page + 1}")
+        )
+    if nav_row:
+        keyboard.append(nav_row)
+    keyboard.append([InlineKeyboardButton(text=texts.BTN_BACK, callback_data="users:back")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def _build_user_detail_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(text=texts.BTN_BACK, callback_data="users:list")]]
+    )
 
 
 async def _send_panel_message(
@@ -250,6 +329,109 @@ async def _show_sponsor_select_menu(
     )
 
 
+async def _show_users_page(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    reference_id: str,
+    page: int,
+) -> None:
+    db = context.application.bot_data.get("db")
+    if db is None:
+        raise RuntimeError("DB missing")
+    _set_sponsor_menu_active(context, False)
+
+    total = await db.get_user_count()
+    if total == 0:
+        await _send_panel_message(
+            update,
+            context,
+            text="\n".join(
+                [
+                    texts.ADMIN_USERS_TITLE,
+                    texts.ADMIN_USERS_TOTAL.format(count=0),
+                    "",
+                    texts.ADMIN_USERS_EMPTY,
+                ]
+            ),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton(text=texts.BTN_BACK, callback_data="users:back")]]
+            ),
+            reference_id=reference_id,
+        )
+        return
+
+    pages = max(1, math.ceil(total / USERS_PAGE_SIZE))
+    page = max(1, min(page, pages))
+    offset = (page - 1) * USERS_PAGE_SIZE
+    users = await db.list_users(limit=USERS_PAGE_SIZE, offset=offset)
+    context.user_data["users_page"] = page
+
+    lines = [
+        texts.ADMIN_USERS_TITLE,
+        texts.ADMIN_USERS_TOTAL.format(count=total),
+        texts.ADMIN_USERS_PAGE.format(page=page, pages=pages),
+        "",
+        texts.ADMIN_USERS_PROMPT,
+    ]
+
+    await _send_panel_message(
+        update,
+        context,
+        text="\n".join(lines),
+        reply_markup=_build_users_menu(users, page, pages),
+        reference_id=reference_id,
+    )
+
+
+async def _show_user_details(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    reference_id: str,
+    telegram_id: int,
+) -> None:
+    db = context.application.bot_data.get("db")
+    if db is None:
+        raise RuntimeError("DB missing")
+    _set_sponsor_menu_active(context, False)
+
+    user = await db.get_user_by_telegram_id(telegram_id)
+    if user is None:
+        await _send_panel_message(
+            update,
+            context,
+            text=texts.ADMIN_USERS_NOT_FOUND,
+            reply_markup=_build_user_detail_menu(),
+            reference_id=reference_id,
+        )
+        return
+
+    first_name = user.get("first_name") or ""
+    last_name = user.get("last_name") or ""
+    full_name = " ".join(part for part in [first_name, last_name] if part) or "-"
+    username = f"@{user['username']}" if user.get("username") else "-"
+
+    lines = [
+        texts.ADMIN_USER_DETAILS_TITLE,
+        f"Telegram ID: {user.get('telegram_id', '-')}",
+        f"Name: {full_name}",
+        f"Username: {username}",
+        f"Language: {user.get('language_code') or '-'}",
+        f"Is bot: {'yes' if user.get('is_bot') else 'no'}",
+        f"First seen: {_format_timestamp(user.get('first_seen'))}",
+        f"Last seen: {_format_timestamp(user.get('last_seen'))}",
+        f"Created at: {_format_timestamp(user.get('created_at'))}",
+        f"Updated at: {_format_timestamp(user.get('updated_at'))}",
+    ]
+
+    await _send_panel_message(
+        update,
+        context,
+        text="\n".join(lines),
+        reply_markup=_build_user_detail_menu(),
+        reference_id=reference_id,
+    )
+
+
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     reference_id = new_reference_id()
     _log_admin_request(update, context, reference_id)
@@ -333,12 +515,13 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if data.startswith("sponsor:remove:"):
         sponsor_service = context.application.bot_data.get("sponsor_service")
         config: ConfigStore | None = context.application.bot_data.get("config")
-        if sponsor_service is None or config is None:
+        db = context.application.bot_data.get("db")
+        if sponsor_service is None or config is None or db is None:
             raise RuntimeError("Config missing")
         channel = data.split(":", 2)[2]
         try:
             sponsor_service.remove_channel(channel)
-            _sync_sponsor_channels(config, sponsor_service)
+            await _sync_sponsor_channels(config, sponsor_service, db)
         except UserVisibleError as exc:
             await update.callback_query.answer(str(exc), show_alert=True)
             return ADMIN_MENU
@@ -357,6 +540,41 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
             reference_id=reference_id,
         )
         return WAITING_INPUT
+
+    if data == "users:menu":
+        context.user_data.pop("config_pending", None)
+        await _show_users_page(update, context, reference_id, page=1)
+        return ADMIN_MENU
+
+    if data == "users:list":
+        context.user_data.pop("config_pending", None)
+        page = context.user_data.get("users_page", 1)
+        await _show_users_page(update, context, reference_id, page=page)
+        return ADMIN_MENU
+
+    if data == "users:back":
+        context.user_data.pop("config_pending", None)
+        context.user_data.pop("users_page", None)
+        await _show_main_menu(update, context, reference_id)
+        return ADMIN_MENU
+
+    if data.startswith("users:page:"):
+        context.user_data.pop("config_pending", None)
+        try:
+            page = int(data.split(":", 2)[2])
+        except ValueError:
+            return ADMIN_MENU
+        await _show_users_page(update, context, reference_id, page=page)
+        return ADMIN_MENU
+
+    if data.startswith("users:view:"):
+        context.user_data.pop("config_pending", None)
+        try:
+            telegram_id = int(data.split(":", 2)[2])
+        except ValueError:
+            return ADMIN_MENU
+        await _show_user_details(update, context, reference_id, telegram_id)
+        return ADMIN_MENU
 
     if data.startswith("cfg:"):
         key = data.split(":", 1)[1]
@@ -395,7 +613,8 @@ async def handle_admin_menu_text(update: Update, context: ContextTypes.DEFAULT_T
     reference_id = new_reference_id()
     config: ConfigStore | None = context.application.bot_data.get("config")
     sponsor_service = context.application.bot_data.get("sponsor_service")
-    if config is None or sponsor_service is None:
+    db = context.application.bot_data.get("db")
+    if config is None or sponsor_service is None or db is None:
         raise RuntimeError("Config missing")
 
     log_incoming_message(
@@ -421,7 +640,7 @@ async def handle_admin_menu_text(update: Update, context: ContextTypes.DEFAULT_T
 
     try:
         _add_sponsor_channels(sponsor_service, raw_text)
-        _sync_sponsor_channels(config, sponsor_service)
+        await _sync_sponsor_channels(config, sponsor_service, db)
     except UserVisibleError as exc:
         await reply_text(
             update,
@@ -449,7 +668,8 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
     config: ConfigStore | None = context.application.bot_data.get("config")
     ai_client = context.application.bot_data.get("ai_client")
     sponsor_service = context.application.bot_data.get("sponsor_service")
-    if config is None or ai_client is None or sponsor_service is None:
+    db = context.application.bot_data.get("db")
+    if config is None or ai_client is None or sponsor_service is None or db is None:
         raise RuntimeError("Config missing")
 
     settings = config.data
@@ -496,9 +716,9 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 if new_channel.chat_id != target_channel.chat_id:
                     sponsor_service.remove_channel(target_channel.chat_id)
                     sponsor_service.add_channel(new_channel.raw)
-            _sync_sponsor_channels(config, sponsor_service)
+            await _sync_sponsor_channels(config, sponsor_service, db)
         else:
-            config.update(key, raw_text)
+            await _persist_setting(config, db, key, raw_text)
     except (ConfigValidationError, UserVisibleError) as exc:
         if pending_type in {"sponsor_add", "sponsor_edit"}:
             prompt = (

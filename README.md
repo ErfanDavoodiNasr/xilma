@@ -24,27 +24,9 @@ pip install -r requirements.txt
 
 ```env
 # Mandatory
-TELEGRAM_BOT_TOKEN="<telegram token>"
+DATABASE_URL="postgresql://xilma:xilma@localhost:5432/xilma"
+BOT_TOKEN="<telegram token>"
 ADMIN_USER_ID="<admin user id>"
-BASE_URL="<base url>"
-
-# Optional (defaults are provided; editable at runtime from /admin)
-SPONSOR_CHANNELS="@channel1,@channel2"
-API_KEY="<api key>"
-DEFAULT_MODEL="gpt-4o"
-MAX_RETRIES="1"
-RETRY_BACKOFF="0.5"
-TEMPERATURE="0.7"
-MAX_TOKENS="512"
-TOP_P="0.9"
-MAX_HISTORY_MESSAGES="12"
-
-# Logging
-LOG_LEVEL="INFO"   # DEBUG | INFO | WARNING | ERROR
-LOG_FORMAT="both"  # text | json | both
-LOG_ANONYMIZE_USER_IDS="true"
-LOG_MESSAGE_BODY="true"
-LOG_MESSAGE_HEADERS="true"
 ```
 
 Then run:
@@ -68,6 +50,7 @@ python bot.py
 Open `/admin` to see a glass-style panel with all settings and their current values.
 Each setting is clickable. After tapping a setting, the bot asks for a new value and provides a Back button.
 Validation is strict (numeric limits, enums, format checks). Invalid input shows a clear error and allows retry.
+Settings are stored in PostgreSQL and loaded at startup; update them via the admin panel.
 
 Sponsor channels are enforced for regular users. Admins are exempt.
 You can update sponsor channels from the admin panel using the `SPONSOR_CHANNELS` setting.
@@ -77,5 +60,6 @@ The panel includes dedicated Sponsor buttons for Add / Edit / Remove, plus quick
 
 - `xilma/config.py` — unified config store + validation
 - `xilma/ai_client.py` — direct API client (single service)
+- `xilma/db.py` — PostgreSQL access + migrations
 - `xilma/handlers/` — Telegram handlers (user + admin)
 - `xilma/logging_setup.py` — structured logging

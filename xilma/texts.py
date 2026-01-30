@@ -33,6 +33,9 @@ BTN_BACK = "بازگشت"
 BTN_ADD = "افزودن"
 BTN_EDIT = "ویرایش"
 BTN_REMOVE = "حذف"
+BTN_USERS = "👥 Users"
+BTN_NEXT = "بعدی"
+BTN_PREV = "قبلی"
 
 ICON_EDIT = "✏️ "
 ICON_REMOVE = "🗑️ "
@@ -45,6 +48,13 @@ ADMIN_SPONSOR_HINT = (
     "برای افزودن سریع، همینجا نام Channel را ارسال کنید. "
     "برای حذف یا ویرایش از دکمه‌ها استفاده کنید."
 )
+ADMIN_USERS_TITLE = "Users"
+ADMIN_USERS_TOTAL = "Total users: {count}"
+ADMIN_USERS_PAGE = "Page {page}/{pages}"
+ADMIN_USERS_PROMPT = "Select a user for details."
+ADMIN_USERS_EMPTY = "No users yet."
+ADMIN_USERS_NOT_FOUND = "User not found."
+ADMIN_USER_DETAILS_TITLE = "User Details"
 ADMIN_PROMPT_SPONSOR_ADD = "نام Channel را ارسال کنید. مثال: @a یا @a,@b"
 ADMIN_PROMPT_SPONSOR_REMOVE_SELECT = "Channel موردنظر برای حذف را انتخاب کنید."
 ADMIN_PROMPT_SPONSOR_EDIT_SELECT = "Channel موردنظر برای ویرایش را انتخاب کنید."

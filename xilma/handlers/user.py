@@ -50,6 +50,21 @@ def _is_admin(update: Update, config: ConfigStore) -> bool:
     return update.effective_user.id == config.data.admin_user_id
 
 
+async def _track_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    db = context.application.bot_data.get("db")
+    user = update.effective_user
+    if db is None or user is None:
+        return
+    await db.upsert_user(
+        telegram_id=user.id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        username=user.username,
+        language_code=user.language_code,
+        is_bot=user.is_bot,
+    )
+
+
 def _build_sponsor_markup(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup | None:
     sponsor_service = context.application.bot_data.get("sponsor_service")
     if sponsor_service is None:
@@ -98,6 +113,7 @@ async def _log_and_check_membership(
     context: ContextTypes.DEFAULT_TYPE,
     reference_id: str,
 ) -> bool:
+    await _track_user(update, context)
     config: ConfigStore | None = context.application.bot_data.get("config")
     _log_incoming_if_config(update, config, reference_id)
     return await _ensure_sponsor_membership(update, context, reference_id)
@@ -127,6 +143,7 @@ async def new_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reference_id = new_reference_id()
+    await _track_user(update, context)
     config: ConfigStore | None = context.application.bot_data.get("config")
     _log_incoming_if_config(update, config, reference_id)
 
@@ -165,6 +182,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reference_id = new_reference_id()
     if update.message is None or not update.message.text:
         raise UserVisibleError(texts.CHAT_ONLY_TEXT)
+    await _track_user(update, context)
 
     config: ConfigStore | None = context.application.bot_data.get("config")
     ai_client = context.application.bot_data.get("ai_client")
@@ -218,6 +236,7 @@ async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if update.callback_query is None:
         return
     reference_id = new_reference_id()
+    await _track_user(update, context)
     await update.callback_query.answer()
     if await _ensure_sponsor_membership(update, context, reference_id):
         await reply_text(update, texts.MEMBERSHIP_OK, context, reference_id=reference_id)
