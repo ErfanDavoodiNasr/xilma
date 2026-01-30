@@ -2,13 +2,12 @@
 
 A production-ready, modular Telegram bot using `python-telegram-bot` (async) that routes user prompts to LLMs via AvalAI’s OpenAI-compatible API.
 
-## Features
+## Highlights
 
-- Modular architecture: config, providers, services, handlers, logging
-- Sponsor channel gating with dynamic membership checks
-- Admin-only sponsor management commands
+- Clean single config system with runtime admin edits
+- Glass-style admin panel with inline buttons
 - Persian (Farsi) UI text
-- Structured logging and safe error handling
+- Structured logging + safe error handling
 - LLM provider abstraction (AvalAI today, more later)
 
 ## Setup
@@ -25,40 +24,26 @@ pip install -r requirements.txt
 3. Create a `.env` file (or export env vars):
 
 ```env
+# Mandatory
 TELEGRAM_BOT_TOKEN="<telegram token>"
-AVALAI_API_KEY="<avalai api key>"
-# Optional base URL
-# AVALAI_BASE_URL="https://api.avalai.ir"
 ADMIN_USER_ID="<admin user id>"
-# Or multiple admins:
-# ADMIN_USER_IDS="123,456"
 
-# Sponsor channels (public usernames only, comma-separated)
+# Optional (defaults are provided; editable at runtime from /admin)
 SPONSOR_CHANNELS="@channel1,@channel2"
-# Optional storage file
-SPONSOR_CHANNELS_FILE="sponsors.json"
-
-# LLM defaults
-DEFAULT_PROVIDER="avalai"
+AVALAI_API_KEY="<avalai api key>"
+AVALAI_BASE_URL="https://api.avalai.ir"
 DEFAULT_MODEL="gpt-4o"
-# Optional fallback
-# FALLBACK_MODEL="gpt-4o-mini"
-
-# Retry behavior
-# MAX_RETRIES="1"
-# RETRY_BACKOFF="0.5"
-
-# Optional sampling overrides
-# TEMPERATURE="0.7"
-# MAX_TOKENS="512"
-# TOP_P="0.9"
-
-# Conversation memory
-# MAX_HISTORY_MESSAGES="12"
+FALLBACK_MODEL="gpt-4o-mini"
+MAX_RETRIES="1"
+RETRY_BACKOFF="0.5"
+TEMPERATURE="0.7"
+MAX_TOKENS="512"
+TOP_P="0.9"
+MAX_HISTORY_MESSAGES="12"
 
 # Logging
-LOG_LEVEL="INFO"
-# LOG_FORMAT="text" | "json" | "both" | "json,text"
+LOG_LEVEL="INFO"   # DEBUG | INFO | WARNING | ERROR
+LOG_FORMAT="both"  # text | json | both
 LOG_ANONYMIZE_USER_IDS="true"
 LOG_MESSAGE_BODY="true"
 LOG_MESSAGE_HEADERS="true"
@@ -74,30 +59,26 @@ python bot.py
 
 - `/start` — شروع
 - `/help` — راهنما
-- `/new` — پاک کردن گفتگو
+- `/new` — پاک‌کردن گفتگو
 - `/model <name>` — انتخاب مدل پاسخ‌دهی
+- `/admin` — پنل مدیریت شیشه‌ای (فقط مدیر)
 
-`/model` accepts any AvalAI model identifier (e.g. `gpt-4o`, `gemini-2.5-pro`). The bot does not validate model names.
+`/model` accepts any AvalAI model identifier (e.g. `gpt-4o`, `gemini-2.5-pro`).
 
-Admin-only:
-- `/admin`
-- `/status`
-- `/sponsors`
-- `/sponsor_add @channel`
-- `/sponsor_remove @channel`
+## Admin Panel UX
 
-## Sponsor Gating Notes
+Open `/admin` to see a glass-style panel with all settings and their current values.
+Each setting is clickable. After tapping a setting, the bot asks for a new value and provides a Back button.
+Validation is strict (numeric limits, enums, format checks). Invalid input shows a clear error and allows retry.
 
-- The bot checks membership dynamically using Telegram’s API.
-- Sponsor channels must be public usernames (e.g. `@channel`).
-- Invite links are not supported for membership checks.
-- Changes made via admin commands are persisted in `sponsors.json` (or the file set via `SPONSOR_CHANNELS_FILE`).
+Sponsor channels are enforced for regular users. Admins are exempt.
+You can update sponsor channels from the admin panel using the `SPONSOR_CHANNELS` setting.
+The panel includes dedicated Sponsor buttons for Add / Remove / Replace.
 
 ## Architecture Overview
 
-- `xilma/config.py` — settings loader
+- `xilma/config.py` — unified config store + validation
 - `xilma/providers/` — LLM provider implementations
-- `xilma/services/` — sponsor gating
-- `xilma/handlers/` — Telegram handlers
+- `xilma/handlers/` — Telegram handlers (user + admin)
 - `xilma/llm_client.py` — unified LLM routing
 - `xilma/logging_setup.py` — structured logging

@@ -31,6 +31,29 @@ class LLMClient:
         for provider in self._providers.values():
             await provider.close()
 
+    def update_defaults(
+        self,
+        *,
+        default_provider: str | None = None,
+        default_model: str | None = None,
+        fallback_provider: str | None = None,
+        fallback_model: str | None = None,
+    ) -> None:
+        if default_provider is not None:
+            self._default_provider = default_provider
+        if default_model is not None:
+            self._default_model = default_model
+        if fallback_provider is not None:
+            self._fallback_provider = fallback_provider
+        if fallback_model is not None:
+            self._fallback_model = fallback_model
+
+    def get_provider(self, name: str) -> BaseLLMProvider | None:
+        return self._providers.get(name)
+
+    def list_providers(self) -> list[str]:
+        return sorted(self._providers.keys())
+
     async def generate_response(
         self,
         *,

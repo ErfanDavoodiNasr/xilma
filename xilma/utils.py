@@ -115,10 +115,10 @@ async def reply_text(
     reference_id: str | None = None,
     **kwargs,
 ) -> None:
-    settings = context.application.bot_data.get("settings") if context else None
-    include_body = settings.log_message_body if settings else False
-    include_headers = settings.log_message_headers if settings else False
-    anonymize = settings.anonymize_user_ids if settings else True
+    config = context.application.bot_data.get("config") if context else None
+    include_body = config.data.log_message_body if config else False
+    include_headers = config.data.log_message_headers if config else False
+    anonymize = config.data.log_anonymize_user_ids if config else True
 
     sent_message: Message | None = None
     if update.message:

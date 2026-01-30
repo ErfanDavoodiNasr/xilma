@@ -37,6 +37,23 @@ class AvalAIProvider(BaseLLMProvider):
             await self._session.close()
             self._session = None
 
+    def update_settings(
+        self,
+        *,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        max_retries: int | None = None,
+        retry_backoff: float | None = None,
+    ) -> None:
+        if api_key is not None:
+            self._api_key = api_key
+        if base_url is not None:
+            self._base_url = base_url.rstrip("/")
+        if max_retries is not None:
+            self._max_retries = max(0, max_retries)
+        if retry_backoff is not None:
+            self._retry_backoff = max(0.0, retry_backoff)
+
     async def generate_response(
         self,
         *,

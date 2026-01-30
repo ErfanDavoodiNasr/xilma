@@ -7,12 +7,13 @@ from telegram.ext import (
     Application,
     ApplicationBuilder,
     CallbackQueryHandler,
+    ConversationHandler,
     CommandHandler,
     MessageHandler,
     filters,
 )
 
-from xilma.config import load_settings
+from xilma.config import load_config
 from xilma.handlers import admin as admin_handlers
 from xilma.handlers import errors as error_handlers
 from xilma.handlers import user as user_handlers
@@ -40,54 +41,67 @@ async def _on_shutdown(app: Application) -> None:
 
 
 def build_application() -> Application:
-    settings = load_settings()
-    setup_logging(settings.log_level, settings.log_format)
-
-    sponsor_service = SponsorService(
-        storage_path=settings.sponsor_channels_file,
-        initial_channels=settings.sponsor_channels,
-    )
+    config_store = load_config()
+    setup_logging(config_store.data.log_level, config_store.data.log_format)
 
     providers = {
         "avalai": AvalAIProvider(
-            api_key=settings.avalai_api_key,
-            base_url=settings.avalai_base_url,
-            timeout=settings.request_timeout,
-            max_retries=settings.max_retries,
-            retry_backoff=settings.retry_backoff,
+            api_key=config_store.data.avalai_api_key or "",
+            base_url=config_store.data.avalai_base_url,
+            timeout=30.0,
+            max_retries=config_store.data.max_retries,
+            retry_backoff=config_store.data.retry_backoff,
         )
     }
 
     llm_client = LLMClient(
         providers=providers,
-        default_provider=settings.default_provider,
-        default_model=settings.default_model,
-        fallback_provider=settings.fallback_provider,
-        fallback_model=settings.fallback_model,
+        default_provider="avalai",
+        default_model=config_store.data.default_model,
+        fallback_provider=None,
+        fallback_model=config_store.data.fallback_model,
     )
 
     application = (
         ApplicationBuilder()
-        .token(settings.telegram_bot_token)
+        .token(config_store.data.telegram_bot_token)
         .post_init(_on_startup)
         .post_shutdown(_on_shutdown)
         .build()
     )
 
-    application.bot_data["settings"] = settings
-    application.bot_data["sponsor_service"] = sponsor_service
+    sponsor_service = SponsorService(config_store.data.sponsor_channels)
+
+    application.bot_data["config"] = config_store
     application.bot_data["llm_client"] = llm_client
+    application.bot_data["sponsor_service"] = sponsor_service
+
+    admin_conversation = ConversationHandler(
+        entry_points=[CommandHandler("admin", admin_handlers.admin_panel)],
+        states={
+            admin_handlers.ADMIN_MENU: [
+                CallbackQueryHandler(
+                    admin_handlers.handle_admin_callback, pattern="^(cfg|sponsor):"
+                ),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_handlers.handle_admin_menu_text),
+            ],
+            admin_handlers.WAITING_INPUT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_handlers.handle_admin_input),
+                CallbackQueryHandler(
+                    admin_handlers.handle_admin_callback, pattern="^(cfg|sponsor):"
+                ),
+            ],
+        },
+        fallbacks=[CommandHandler("admin", admin_handlers.admin_panel)],
+        name="admin_panel",
+        persistent=False,
+    )
+    application.add_handler(admin_conversation)
 
     application.add_handler(CommandHandler("start", user_handlers.start))
     application.add_handler(CommandHandler("help", user_handlers.help_command))
     application.add_handler(CommandHandler("new", user_handlers.new_chat))
     application.add_handler(CommandHandler("model", user_handlers.set_model))
-
-    application.add_handler(CommandHandler("admin", admin_handlers.admin_panel))
-    application.add_handler(CommandHandler("status", admin_handlers.status))
-    application.add_handler(CommandHandler("sponsors", admin_handlers.list_sponsors))
-    application.add_handler(CommandHandler("sponsor_add", admin_handlers.add_sponsor))
-    application.add_handler(CommandHandler("sponsor_remove", admin_handlers.remove_sponsor))
 
     application.add_handler(
         CallbackQueryHandler(user_handlers.check_membership, pattern="^check_membership$")
