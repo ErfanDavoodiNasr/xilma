@@ -13,10 +13,17 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. Export your token and run:
+3. Create a `.env` file or export your token and run:
+
+Example `.env`:
+
+```
+TELEGRAM_BOT_TOKEN="<your token>"
+```
+
+Environment variables take precedence over `.env` if both are set. Then run:
 
 ```bash
-export TELEGRAM_BOT_TOKEN="<your token>"
 python bot.py
 ```
 
