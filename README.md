@@ -19,6 +19,7 @@ Example `.env`:
 
 ```
 TELEGRAM_BOT_TOKEN="<your token>"
+ADMIN_USER_ID="<admin user id>"
 ```
 
 Environment variables take precedence over `.env` if both are set. Then run:
@@ -31,4 +32,5 @@ python bot.py
 
 - `/start` — greeting
 - `/help` — commands
+- `/admin` — admin check (requires `ADMIN_USER_ID`)
 - Any text message — echo
