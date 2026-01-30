@@ -117,7 +117,7 @@ need_cmd mktemp
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   cat <<'USAGE'
-Usage: ./deploy.sh
+Usage: ./deploy.sh [deploy|update]
 
 Optional env vars to skip prompts:
   DEPLOY_HOST, DEPLOY_USER, DEPLOY_PORT, DEPLOY_AUTH, DEPLOY_SSH_KEY, DEPLOY_PASSWORD
@@ -125,8 +125,21 @@ Optional env vars to skip prompts:
   BOT_TOKEN, ADMIN_USER_ID
   POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, DATABASE_URL
   INSTALL_DOCKER
+
+Modes:
+  deploy (default)  Full setup: clone repo + upload .env + build & run
+  update            Fast update: git pull + build & run (no .env prompts)
 USAGE
   exit 0
+fi
+
+MODE="deploy"
+if [ $# -gt 0 ]; then
+  case "$1" in
+    deploy|--deploy) MODE="deploy" ;;
+    update|--update) MODE="update" ;;
+    *) die "Unknown mode: $1 (use deploy or update)" ;;
+  esac
 fi
 
 info "Xilma deploy - interactive setup"
@@ -154,70 +167,93 @@ else
 fi
 
 # Repo details
-prompt_var REPO_URL "Git repo URL (HTTPS or SSH)" "https://github.com/ErfanDavoodiNasr/xilma"
-prompt_var REPO_BRANCH "Git branch" "main"
-prompt_var APP_DIR "Remote app directory" "/opt/xilma"
-
-# App env
-prompt_var BOT_TOKEN "BOT_TOKEN" "" "secret"
-prompt_var ADMIN_USER_ID "ADMIN_USER_ID"
-prompt_var POSTGRES_DB "POSTGRES_DB" "xilma"
-prompt_var POSTGRES_USER "POSTGRES_USER" "xilma"
-prompt_var POSTGRES_PASSWORD "POSTGRES_PASSWORD" "" "secret"
-
-# Optional override
-prompt_var DATABASE_URL "DATABASE_URL (leave blank to auto-generate)" "" "" 0
-if [ -z "${DATABASE_URL:-}" ]; then
-  DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}"
+DEFAULT_REF="main"
+if command -v git >/dev/null 2>&1; then
+  CURRENT_REF="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  if [ -n "$CURRENT_REF" ]; then
+    DEFAULT_REF="$CURRENT_REF"
+  fi
 fi
+if [ "$MODE" = "deploy" ]; then
+  prompt_var REPO_URL "Git repo URL (HTTPS or SSH)" "https://github.com/ErfanDavoodiNasr/xilma"
+  prompt_var REPO_BRANCH "Git ref (branch/tag/commit)" "$DEFAULT_REF"
+  prompt_var APP_DIR "Remote app directory" "/opt/xilma"
 
-if ! [[ "$ADMIN_USER_ID" =~ ^[0-9]+$ ]]; then
-  warn "ADMIN_USER_ID does not look numeric. Telegram IDs are usually numbers."
+  # App env
+  prompt_var BOT_TOKEN "BOT_TOKEN" "" "secret"
+  prompt_var ADMIN_USER_ID "ADMIN_USER_ID"
+  prompt_var POSTGRES_DB "POSTGRES_DB" "xilma"
+  prompt_var POSTGRES_USER "POSTGRES_USER" "xilma"
+  prompt_var POSTGRES_PASSWORD "POSTGRES_PASSWORD" "" "secret"
+
+  # Optional override
+  prompt_var DATABASE_URL "DATABASE_URL (leave blank to auto-generate)" "" "" 0
+  if [ -z "${DATABASE_URL:-}" ]; then
+    DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}"
+  fi
+
+  if ! [[ "$ADMIN_USER_ID" =~ ^[0-9]+$ ]]; then
+    warn "ADMIN_USER_ID does not look numeric. Telegram IDs are usually numbers."
+  fi
+else
+  prompt_var APP_DIR "Remote app directory" "/opt/xilma"
+  prompt_var REPO_BRANCH "Git ref (leave blank to keep current)" "" "" 0
 fi
 
 # Docker install option
-prompt_var INSTALL_DOCKER "Install Docker if missing? (yes/no)" "no" "" 0
+if [ "$MODE" = "deploy" ]; then
+  prompt_var INSTALL_DOCKER "Install Docker if missing? (yes/no)" "no" "" 0
+else
+  INSTALL_DOCKER="${INSTALL_DOCKER:-no}"
+fi
 INSTALL_DOCKER="$(echo "$INSTALL_DOCKER" | tr '[:upper:]' '[:lower:]')"
 if [ "$INSTALL_DOCKER" != "yes" ] && [ "$INSTALL_DOCKER" != "no" ] && [ -n "$INSTALL_DOCKER" ]; then
   die "INSTALL_DOCKER must be 'yes' or 'no'"
 fi
 
-# Prepare .env
-ENV_FILE="$(mktemp)"
-chmod 600 "$ENV_FILE"
+# Prepare .env (deploy mode only)
+if [ "$MODE" = "deploy" ]; then
+  ENV_FILE="$(mktemp)"
+  chmod 600 "$ENV_FILE"
 
-escape_env() {
-  # Escape for .env (double-quoted string)
-  local v="$1"
-  v="${v//\\/\\\\}"
-  v="${v//\"/\\\"}"
-  printf '"%s"' "$v"
-}
+  escape_env() {
+    # Escape for .env (double-quoted string)
+    local v="$1"
+    v="${v//\\/\\\\}"
+    v="${v//\"/\\\"}"
+    printf '"%s"' "$v"
+  }
 
-{
-  echo "POSTGRES_DB=$(escape_env "$POSTGRES_DB")"
-  echo "POSTGRES_USER=$(escape_env "$POSTGRES_USER")"
-  echo "POSTGRES_PASSWORD=$(escape_env "$POSTGRES_PASSWORD")"
-  echo "DATABASE_URL=$(escape_env "$DATABASE_URL")"
-  echo "BOT_TOKEN=$(escape_env "$BOT_TOKEN")"
-  echo "ADMIN_USER_ID=$(escape_env "$ADMIN_USER_ID")"
-} > "$ENV_FILE"
+  {
+    echo "POSTGRES_DB=$(escape_env "$POSTGRES_DB")"
+    echo "POSTGRES_USER=$(escape_env "$POSTGRES_USER")"
+    echo "POSTGRES_PASSWORD=$(escape_env "$POSTGRES_PASSWORD")"
+    echo "DATABASE_URL=$(escape_env "$DATABASE_URL")"
+    echo "BOT_TOKEN=$(escape_env "$BOT_TOKEN")"
+    echo "ADMIN_USER_ID=$(escape_env "$ADMIN_USER_ID")"
+  } > "$ENV_FILE"
+fi
 
 # Summary
 info "\nReview configuration:"
+echo "Mode:            $MODE"
 echo "Host:            $DEPLOY_HOST"
 echo "User:            $DEPLOY_USER"
 echo "Port:            $DEPLOY_PORT"
 echo "Auth:            $DEPLOY_AUTH"
-echo "Repo:            $REPO_URL"
-echo "Branch:          $REPO_BRANCH"
 echo "App dir:         $APP_DIR"
-echo "BOT_TOKEN:       $(mask_secret "$BOT_TOKEN")"
-echo "ADMIN_USER_ID:   $ADMIN_USER_ID"
-echo "POSTGRES_DB:     $POSTGRES_DB"
-echo "POSTGRES_USER:   $POSTGRES_USER"
-echo "POSTGRES_PASSWORD: $(mask_secret "$POSTGRES_PASSWORD")"
-echo "DATABASE_URL:    $DATABASE_URL"
+if [ "$MODE" = "deploy" ]; then
+  echo "Repo:            $REPO_URL"
+  echo "Ref:             $REPO_BRANCH"
+  echo "BOT_TOKEN:       $(mask_secret "$BOT_TOKEN")"
+  echo "ADMIN_USER_ID:   $ADMIN_USER_ID"
+  echo "POSTGRES_DB:     $POSTGRES_DB"
+  echo "POSTGRES_USER:   $POSTGRES_USER"
+  echo "POSTGRES_PASSWORD: $(mask_secret "$POSTGRES_PASSWORD")"
+  echo "DATABASE_URL:    $DATABASE_URL"
+else
+  echo "Ref:             ${REPO_BRANCH:-<keep current>}"
+fi
 
 if ! confirm "Proceed with deployment?"; then
   die "Aborted by user"
@@ -240,10 +276,13 @@ elif [ "$DEPLOY_AUTH" = "key" ]; then
   fi
 fi
 
-# Upload .env to remote temp
-REMOTE_ENV="/tmp/xilma.env.$RANDOM.$RANDOM"
-info "Uploading .env to remote..."
-"${SCP_CMD[@]}" "${SCP_OPTS[@]}" "$ENV_FILE" "$SSH_TARGET:$REMOTE_ENV"
+# Upload .env to remote temp (deploy mode only)
+REMOTE_ENV=""
+if [ "$MODE" = "deploy" ]; then
+  REMOTE_ENV="/tmp/xilma.env.$RANDOM.$RANDOM"
+  info "Uploading .env to remote..."
+  "${SCP_CMD[@]}" "${SCP_OPTS[@]}" "$ENV_FILE" "$SSH_TARGET:$REMOTE_ENV"
+fi
 
 # Build remote bootstrap script
 REMOTE_SCRIPT="$(mktemp)"
@@ -254,9 +293,10 @@ set -euo pipefail
 IFS=$'\n\t'
 REMOTE_HEADER
 
+  echo "MODE=$(shell_quote "$MODE")"
   echo "APP_DIR=$(shell_quote "$APP_DIR")"
-  echo "REPO_URL=$(shell_quote "$REPO_URL")"
-  echo "BRANCH=$(shell_quote "$REPO_BRANCH")"
+  echo "REPO_URL=$(shell_quote "${REPO_URL:-}")"
+  echo "BRANCH=$(shell_quote "${REPO_BRANCH:-}")"
   echo "ENV_SRC=$(shell_quote "$REMOTE_ENV")"
   echo "INSTALL_DOCKER=$(shell_quote "$INSTALL_DOCKER")"
 
@@ -382,31 +422,46 @@ else
   die "Docker Compose not found. Install docker compose plugin or docker-compose."
 fi
 
-# Prepare app directory
-if [ -d "$APP_DIR/.git" ]; then
-  log "Updating existing repo in $APP_DIR"
+# Prepare app directory / update flow
+if [ "$MODE" = "update" ]; then
+  if [ ! -d "$APP_DIR/.git" ]; then
+    die "Update mode requires an existing git repo at $APP_DIR"
+  fi
+  log "Updating repo in $APP_DIR"
   cd "$APP_DIR"
   git fetch --all --prune
-  git checkout "$BRANCH"
-  git pull --ff-only
-elif [ -e "$APP_DIR" ]; then
-  die "$APP_DIR exists but is not a git repo. Remove it or choose another directory."
+  if [ -n "$BRANCH" ]; then
+    git checkout "$BRANCH"
+  fi
+  if git symbolic-ref -q HEAD >/dev/null 2>&1; then
+    git pull --ff-only
+  fi
 else
-  log "Cloning repo to $APP_DIR"
-  "${SUDO[@]}" mkdir -p "$APP_DIR"
-  "${SUDO[@]}" chown -R "$USER":"$USER" "$APP_DIR"
-  git clone --branch "$BRANCH" --depth 1 "$REPO_URL" "$APP_DIR"
-  cd "$APP_DIR"
-fi
+  if [ -d "$APP_DIR/.git" ]; then
+    log "Updating existing repo in $APP_DIR"
+    cd "$APP_DIR"
+    git fetch --all --prune
+    git checkout "$BRANCH"
+    git pull --ff-only
+  elif [ -e "$APP_DIR" ]; then
+    die "$APP_DIR exists but is not a git repo. Remove it or choose another directory."
+  else
+    log "Cloning repo to $APP_DIR"
+    "${SUDO[@]}" mkdir -p "$APP_DIR"
+    "${SUDO[@]}" chown -R "$USER":"$USER" "$APP_DIR"
+    git clone --branch "$BRANCH" --depth 1 "$REPO_URL" "$APP_DIR"
+    cd "$APP_DIR"
+  fi
 
-# Install .env
-if [ ! -f "$ENV_SRC" ]; then
-  die "Remote env file not found: $ENV_SRC"
-fi
+  # Install .env
+  if [ ! -f "$ENV_SRC" ]; then
+    die "Remote env file not found: $ENV_SRC"
+  fi
 
-log "Installing .env"
-install -m 600 "$ENV_SRC" "$APP_DIR/.env"
-rm -f "$ENV_SRC"
+  log "Installing .env"
+  install -m 600 "$ENV_SRC" "$APP_DIR/.env"
+  rm -f "$ENV_SRC"
+fi
 
 # Build and run
 log "Building and starting containers"
