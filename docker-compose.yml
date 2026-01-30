@@ -1,0 +1,23 @@
+services:
+  db:
+    image: postgres:alpine3.23
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - xilma_db:/var/lib/postgresql/data
+
+  bot:
+    build: .
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      BOT_TOKEN: ${BOT_TOKEN}
+      ADMIN_USER_ID: ${ADMIN_USER_ID}
+
+volumes:
+  xilma_db:

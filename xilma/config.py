@@ -5,8 +5,6 @@ import os
 import re
 from typing import Any
 
-from dotenv import load_dotenv
-
 from xilma import texts
 
 
@@ -179,6 +177,25 @@ SETTINGS_SPECS: list[SettingSpec] = [
 SPEC_BY_KEY = {spec.key: spec for spec in SETTINGS_SPECS}
 
 
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "SPONSOR_CHANNELS": [],
+    "API_KEY": None,
+    "BASE_URL": "https://api.openai.com",
+    "DEFAULT_MODEL": "gpt-4o",
+    "MAX_RETRIES": 1,
+    "RETRY_BACKOFF": 0.5,
+    "TEMPERATURE": None,
+    "MAX_TOKENS": None,
+    "TOP_P": None,
+    "MAX_HISTORY_MESSAGES": 12,
+    "LOG_LEVEL": "INFO",
+    "LOG_FORMAT": "both",
+    "LOG_ANONYMIZE_USER_IDS": True,
+    "LOG_MESSAGE_BODY": True,
+    "LOG_MESSAGE_HEADERS": True,
+}
+
+
 def _parse_required_env(name: str) -> str:
     value = os.getenv(name)
     if not value:
@@ -199,24 +216,6 @@ def _parse_optional(raw: str | None) -> str | None:
     if lowered in {"", "none", "null", "unset", "-"}:
         return None
     return raw
-
-
-def _parse_env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw == "":
-        return default
-    if not re.fullmatch(r"[0-9]+", raw.strip()):
-        raise SystemExit(f"{name} must be digits")
-    return int(raw)
-
-
-def _parse_env_float(name: str, default: float | None) -> float | None:
-    raw = os.getenv(name)
-    if raw is None or raw == "":
-        return default
-    if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", raw.strip()):
-        raise SystemExit(f"{name} must be a float number with digits")
-    return float(raw)
 
 
 def _validate_string(spec: SettingSpec, raw: str) -> str | None:
@@ -353,42 +352,71 @@ class ConfigStore:
         return data
 
 
-def load_config() -> ConfigStore:
-    load_dotenv()
-
-    telegram_bot_token = _parse_required_env("TELEGRAM_BOT_TOKEN")
+def load_env_credentials() -> tuple[str, int]:
+    token = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise SystemExit("BOT_TOKEN is not set")
     admin_user_id = _parse_admin_id(_parse_required_env("ADMIN_USER_ID"))
+    return token, admin_user_id
 
+
+def serialize_setting_value(spec: SettingSpec, value: Any) -> str | None:
+    if value is None:
+        return None
+    if spec.kind == "bool":
+        return "true" if value else "false"
+    if spec.kind == "int":
+        return str(int(value))
+    if spec.kind == "float":
+        return str(float(value))
+    if spec.kind == "channels":
+        channels = list(value) if value else []
+        return ",".join(channels) if channels else None
+    return str(value)
+
+
+def default_settings_raw() -> dict[str, str | None]:
+    defaults: dict[str, str | None] = {}
+    for spec in SETTINGS_SPECS:
+        if spec.key not in DEFAULT_SETTINGS:
+            continue
+        defaults[spec.key] = serialize_setting_value(spec, DEFAULT_SETTINGS[spec.key])
+    return defaults
+
+
+def build_config_store(
+    *,
+    telegram_bot_token: str,
+    admin_user_id: int,
+    settings: dict[str, str | None],
+) -> ConfigStore:
     config = Config(
         telegram_bot_token=telegram_bot_token,
         admin_user_id=admin_user_id,
-        sponsor_channels=[],
-        api_key=os.getenv("API_KEY"),
-        base_url=_parse_required_env("BASE_URL"),
-        default_model=os.getenv("DEFAULT_MODEL", "gpt-4o"),
-        max_retries=max(0, _parse_env_int("MAX_RETRIES", 1)),
-        retry_backoff=max(0.0, _parse_env_float("RETRY_BACKOFF", 0.5) or 0.5),
-        temperature=_parse_env_float("TEMPERATURE", None),
-        max_tokens=_parse_env_int("MAX_TOKENS", 0) or None,
-        top_p=_parse_env_float("TOP_P", None),
-        max_history_messages=max(0, _parse_env_int("MAX_HISTORY_MESSAGES", 12)),
-        log_level=os.getenv("LOG_LEVEL", "INFO"),
-        log_format=os.getenv("LOG_FORMAT", "both"),
-        log_anonymize_user_ids=os.getenv("LOG_ANONYMIZE_USER_IDS", "true").lower()
-        in {"1", "true", "yes", "on"},
-        log_message_body=os.getenv("LOG_MESSAGE_BODY", "true").lower()
-        in {"1", "true", "yes", "on"},
-        log_message_headers=os.getenv("LOG_MESSAGE_HEADERS", "true").lower()
-        in {"1", "true", "yes", "on"},
+        sponsor_channels=list(DEFAULT_SETTINGS["SPONSOR_CHANNELS"]),
+        api_key=DEFAULT_SETTINGS["API_KEY"],
+        base_url=DEFAULT_SETTINGS["BASE_URL"],
+        default_model=DEFAULT_SETTINGS["DEFAULT_MODEL"],
+        max_retries=DEFAULT_SETTINGS["MAX_RETRIES"],
+        retry_backoff=DEFAULT_SETTINGS["RETRY_BACKOFF"],
+        temperature=DEFAULT_SETTINGS["TEMPERATURE"],
+        max_tokens=DEFAULT_SETTINGS["MAX_TOKENS"],
+        top_p=DEFAULT_SETTINGS["TOP_P"],
+        max_history_messages=DEFAULT_SETTINGS["MAX_HISTORY_MESSAGES"],
+        log_level=DEFAULT_SETTINGS["LOG_LEVEL"],
+        log_format=DEFAULT_SETTINGS["LOG_FORMAT"],
+        log_anonymize_user_ids=DEFAULT_SETTINGS["LOG_ANONYMIZE_USER_IDS"],
+        log_message_body=DEFAULT_SETTINGS["LOG_MESSAGE_BODY"],
+        log_message_headers=DEFAULT_SETTINGS["LOG_MESSAGE_HEADERS"],
     )
 
     store = ConfigStore(config)
     for spec in SETTINGS_SPECS:
-        raw = os.getenv(spec.key)
+        raw = settings.get(spec.key)
         if raw is None:
             continue
         try:
             store.update(spec.key, raw)
         except ConfigValidationError as exc:
-            raise SystemExit(f"Invalid {spec.key}: {exc.message}") from exc
+            raise SystemExit(f"Invalid {spec.key} in database: {exc.message}") from exc
     return store

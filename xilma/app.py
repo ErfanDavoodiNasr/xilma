@@ -13,7 +13,10 @@ from telegram.ext import (
     filters,
 )
 
-from xilma.config import load_config
+from dotenv import load_dotenv
+
+from xilma.config import build_config_store, default_settings_raw, load_env_credentials
+from xilma.db import Database, load_database_url
 from xilma.handlers import admin as admin_handlers
 from xilma.handlers import errors as error_handlers
 from xilma.handlers import user as user_handlers
@@ -36,11 +39,26 @@ async def _on_shutdown(app: Application) -> None:
     ai_client = app.bot_data.get("ai_client")
     if ai_client:
         await ai_client.close()
+    db = app.bot_data.get("db")
+    if db:
+        await db.close()
     logger.info("bot_stopped")
 
 
 def build_application() -> Application:
-    config_store = load_config()
+    load_dotenv()
+    database_url = load_database_url()
+    bot_token, admin_user_id = load_env_credentials()
+    db = Database(database_url)
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(db.migrate())
+    loop.run_until_complete(db.ensure_settings_defaults(default_settings_raw()))
+    settings = loop.run_until_complete(db.fetch_settings())
+    config_store = build_config_store(
+        telegram_bot_token=bot_token,
+        admin_user_id=admin_user_id,
+        settings=settings,
+    )
     setup_logging(config_store.data.log_level, config_store.data.log_format)
 
     ai_client = AIClient(
@@ -64,6 +82,7 @@ def build_application() -> Application:
     application.bot_data["config"] = config_store
     application.bot_data["ai_client"] = ai_client
     application.bot_data["sponsor_service"] = sponsor_service
+    application.bot_data["db"] = db
 
     admin_conversation = ConversationHandler(
         entry_points=[CommandHandler("admin", admin_handlers.admin_panel)],
