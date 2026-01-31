@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set -E
 IFS=$'\n\t'
 
 # Simple, safe deploy script for the Xilma bot
@@ -27,6 +28,14 @@ log() { echo -e "${C_GREEN}[+]${C_RESET} $*"; }
 warn() { echo -e "${C_YELLOW}[!]${C_RESET} $*"; }
 info() { echo -e "${C_BLUE}[-]${C_RESET} $*"; }
 die() { echo -e "${C_RED}[x]${C_RESET} $*" >&2; exit 1; }
+
+on_error() {
+  local code=$?
+  local line=${BASH_LINENO[0]}
+  local cmd=${BASH_COMMAND}
+  die "Command failed (exit $code) at line $line: $cmd"
+}
+trap on_error ERR
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"
@@ -115,6 +124,24 @@ need_cmd ssh
 need_cmd scp
 need_cmd mktemp
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_PATH="${ENV_PATH:-$SCRIPT_DIR/.env}"
+
+load_env_file() {
+  local path="$1"
+  if [ -f "$path" ]; then
+    info "Loading env from $path"
+    set -a
+    # shellcheck disable=SC1090
+    source "$path"
+    set +a
+  else
+    warn "Env file not found at $path (continuing with prompts/env vars)"
+  fi
+}
+
+load_env_file "$ENV_PATH"
+
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   cat <<'USAGE'
 Usage: ./deploy.sh [deploy|update]
@@ -122,9 +149,11 @@ Usage: ./deploy.sh [deploy|update]
 Optional env vars to skip prompts:
   DEPLOY_HOST, DEPLOY_USER, DEPLOY_PORT, DEPLOY_AUTH, DEPLOY_SSH_KEY, DEPLOY_PASSWORD
   REPO_URL, REPO_BRANCH, APP_DIR
-  BOT_TOKEN, ADMIN_USER_ID
+  TELEGRAM_BOT_TOKEN, BOT_TOKEN, ADMIN_USER_ID
   POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, DATABASE_URL
+  API_KEY, BASE_URL, DEFAULT_MODEL, LOG_FORMAT
   INSTALL_DOCKER
+  ENV_PATH (path to .env, default: ./.env)
 
 Modes:
   deploy (default)  Full setup: clone repo + upload .env + build & run
@@ -145,11 +174,13 @@ fi
 info "Xilma deploy - interactive setup"
 
 # Connection details
+info "Collecting connection settings..."
 prompt_var DEPLOY_HOST "VPS IP/Host"
 prompt_var DEPLOY_USER "SSH user" "root"
 prompt_var DEPLOY_PORT "SSH port" "22"
 
 # Auth method
+info "Collecting auth settings..."
 prompt_var DEPLOY_AUTH "Auth method (key/password)" "key"
 DEPLOY_AUTH="$(echo "$DEPLOY_AUTH" | tr '[:upper:]' '[:lower:]')"
 if [ "$DEPLOY_AUTH" = "password" ]; then
@@ -167,6 +198,7 @@ else
 fi
 
 # Repo details
+info "Collecting repo settings..."
 DEFAULT_REF="main"
 if command -v git >/dev/null 2>&1; then
   CURRENT_REF="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
@@ -180,11 +212,19 @@ if [ "$MODE" = "deploy" ]; then
   prompt_var APP_DIR "Remote app directory" "/opt/xilma"
 
   # App env
-  prompt_var BOT_TOKEN "BOT_TOKEN" "" "secret"
+  info "Collecting app settings..."
+  if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${BOT_TOKEN:-}" ]; then
+    TELEGRAM_BOT_TOKEN="$BOT_TOKEN"
+  fi
+  prompt_var TELEGRAM_BOT_TOKEN "TELEGRAM_BOT_TOKEN" "" "secret"
   prompt_var ADMIN_USER_ID "ADMIN_USER_ID"
   prompt_var POSTGRES_DB "POSTGRES_DB" "xilma"
   prompt_var POSTGRES_USER "POSTGRES_USER" "xilma"
   prompt_var POSTGRES_PASSWORD "POSTGRES_PASSWORD" "" "secret"
+  prompt_var API_KEY "API_KEY (optional)" "" "secret" 0
+  prompt_var BASE_URL "BASE_URL (optional)" "" "" 0
+  prompt_var DEFAULT_MODEL "DEFAULT_MODEL (optional)" "" "" 0
+  prompt_var LOG_FORMAT "LOG_FORMAT (optional: text/json/both)" "" "" 0
 
   # Optional override
   prompt_var DATABASE_URL "DATABASE_URL (leave blank to auto-generate)" "" "" 0
@@ -201,6 +241,7 @@ else
 fi
 
 # Docker install option
+info "Collecting Docker install preference..."
 if [ "$MODE" = "deploy" ]; then
   prompt_var INSTALL_DOCKER "Install Docker if missing? (yes/no)" "no" "" 0
 else
@@ -213,6 +254,7 @@ fi
 
 # Prepare .env (deploy mode only)
 if [ "$MODE" = "deploy" ]; then
+  info "Preparing temporary .env for upload..."
   ENV_FILE="$(mktemp)"
   chmod 600 "$ENV_FILE"
 
@@ -223,14 +265,25 @@ if [ "$MODE" = "deploy" ]; then
     v="${v//\"/\\\"}"
     printf '"%s"' "$v"
   }
+  emit_env_optional() {
+    local key="$1"
+    local val="$2"
+    if [ -n "$val" ]; then
+      echo "${key}=$(escape_env "$val")"
+    fi
+  }
 
   {
     echo "POSTGRES_DB=$(escape_env "$POSTGRES_DB")"
     echo "POSTGRES_USER=$(escape_env "$POSTGRES_USER")"
     echo "POSTGRES_PASSWORD=$(escape_env "$POSTGRES_PASSWORD")"
     echo "DATABASE_URL=$(escape_env "$DATABASE_URL")"
-    echo "BOT_TOKEN=$(escape_env "$BOT_TOKEN")"
+    echo "TELEGRAM_BOT_TOKEN=$(escape_env "$TELEGRAM_BOT_TOKEN")"
     echo "ADMIN_USER_ID=$(escape_env "$ADMIN_USER_ID")"
+    emit_env_optional "API_KEY" "$API_KEY"
+    emit_env_optional "BASE_URL" "$BASE_URL"
+    emit_env_optional "DEFAULT_MODEL" "$DEFAULT_MODEL"
+    emit_env_optional "LOG_FORMAT" "$LOG_FORMAT"
   } > "$ENV_FILE"
 fi
 
@@ -245,7 +298,7 @@ echo "App dir:         $APP_DIR"
 if [ "$MODE" = "deploy" ]; then
   echo "Repo:            $REPO_URL"
   echo "Ref:             $REPO_BRANCH"
-  echo "BOT_TOKEN:       $(mask_secret "$BOT_TOKEN")"
+  echo "TELEGRAM_BOT_TOKEN: $(mask_secret "$TELEGRAM_BOT_TOKEN")"
   echo "ADMIN_USER_ID:   $ADMIN_USER_ID"
   echo "POSTGRES_DB:     $POSTGRES_DB"
   echo "POSTGRES_USER:   $POSTGRES_USER"
@@ -285,11 +338,13 @@ if [ "$MODE" = "deploy" ]; then
 fi
 
 # Build remote bootstrap script
+info "Building remote bootstrap script..."
 REMOTE_SCRIPT="$(mktemp)"
 {
   cat <<'REMOTE_HEADER'
 #!/usr/bin/env bash
 set -euo pipefail
+set -E
 IFS=$'\n\t'
 REMOTE_HEADER
 
@@ -307,6 +362,14 @@ warn() { echo "[!] $*"; }
 err() { echo "[x] $*" >&2; }
 
 die() { err "$*"; exit 1; }
+on_error() {
+  local code=$?
+  local line=${BASH_LINENO[0]}
+  local cmd=${BASH_COMMAND}
+  err "Command failed (exit $code) at line $line: $cmd"
+  exit "$code"
+}
+trap on_error ERR
 
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 

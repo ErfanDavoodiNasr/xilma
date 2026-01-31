@@ -353,9 +353,9 @@ class ConfigStore:
 
 
 def load_env_credentials() -> tuple[str, int]:
-    token = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+    token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN")
     if not token:
-        raise SystemExit("BOT_TOKEN is not set")
+        raise SystemExit("TELEGRAM_BOT_TOKEN is not set")
     admin_user_id = _parse_admin_id(_parse_required_env("ADMIN_USER_ID"))
     return token, admin_user_id
 
@@ -382,6 +382,37 @@ def default_settings_raw() -> dict[str, str | None]:
             continue
         defaults[spec.key] = serialize_setting_value(spec, DEFAULT_SETTINGS[spec.key])
     return defaults
+
+
+def env_settings_raw() -> dict[str, str]:
+    settings: dict[str, str] = {}
+    for spec in SETTINGS_SPECS:
+        raw = os.getenv(spec.key)
+        if raw is None:
+            continue
+        settings[spec.key] = raw
+    return settings
+
+
+def apply_env_overrides(
+    *,
+    settings: dict[str, str | None],
+    defaults: dict[str, str | None],
+) -> tuple[dict[str, str | None], dict[str, str | None]]:
+    env_settings = env_settings_raw()
+    if not env_settings:
+        return settings, {}
+    merged = dict(settings)
+    updates: dict[str, str | None] = {}
+    for key, raw in env_settings.items():
+        if not raw.strip():
+            continue
+        current = merged.get(key)
+        default = defaults.get(key)
+        if current is None or current == default:
+            merged[key] = raw
+            updates[key] = raw
+    return merged, updates
 
 
 def build_config_store(

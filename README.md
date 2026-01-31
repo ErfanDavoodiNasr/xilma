@@ -25,7 +25,7 @@ pip install -r requirements.txt
 ```env
 # Mandatory
 DATABASE_URL="postgresql://xilma:xilma@localhost:5432/xilma"
-BOT_TOKEN="<telegram token>"
+TELEGRAM_BOT_TOKEN="<telegram token>"
 ADMIN_USER_ID="<admin user id>"
 ```
 

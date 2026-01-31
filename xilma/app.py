@@ -15,7 +15,12 @@ from telegram.ext import (
 
 from dotenv import load_dotenv
 
-from xilma.config import build_config_store, default_settings_raw, load_env_credentials
+from xilma.config import (
+    apply_env_overrides,
+    build_config_store,
+    default_settings_raw,
+    load_env_credentials,
+)
 from xilma.db import Database, load_database_url
 from xilma.handlers import admin as admin_handlers
 from xilma.handlers import errors as error_handlers
@@ -52,8 +57,12 @@ def build_application() -> Application:
     db = Database(database_url)
     loop = asyncio.get_event_loop()
     loop.run_until_complete(db.migrate())
-    loop.run_until_complete(db.ensure_settings_defaults(default_settings_raw()))
+    defaults = default_settings_raw()
+    loop.run_until_complete(db.ensure_settings_defaults(defaults))
     settings = loop.run_until_complete(db.fetch_settings())
+    settings, env_updates = apply_env_overrides(settings=settings, defaults=defaults)
+    for key, value in env_updates.items():
+        loop.run_until_complete(db.set_setting(key, value))
     config_store = build_config_store(
         telegram_bot_token=bot_token,
         admin_user_id=admin_user_id,

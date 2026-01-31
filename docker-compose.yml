@@ -20,9 +20,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
       DATABASE_URL: ${DATABASE_URL}
-      BOT_TOKEN: ${BOT_TOKEN}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       ADMIN_USER_ID: ${ADMIN_USER_ID}
 
 volumes:
