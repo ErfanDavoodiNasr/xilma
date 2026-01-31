@@ -17,6 +17,12 @@ class AIResponse:
     usage: dict[str, Any] | None = None
 
 
+@dataclass(frozen=True)
+class ModelInfo:
+    model_id: str
+    price: float | None = None
+
+
 class AIClient:
     def __init__(
         self,
@@ -135,3 +141,132 @@ class AIClient:
             raise APIError("Response format error") from exc
 
         return AIResponse(content=content, model=data.get("model", model), usage=data.get("usage"))
+
+    async def list_models(self) -> list[ModelInfo]:
+        if self._session is None:
+            await self.start()
+
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+
+        endpoints = ("/v1/models", "/v1beta/models")
+        last_error: Exception | None = None
+
+        for path in endpoints:
+            url = f"{self._base_url}{path}"
+            for attempt in range(self._max_retries + 1):
+                try:
+                    async with self._session.get(url, headers=headers) as resp:
+                        if resp.status >= 400:
+                            text = await resp.text()
+                            if resp.status == 404:
+                                last_error = APIError(
+                                    f"API error {resp.status}: {text}",
+                                    status_code=resp.status,
+                                )
+                                break
+                            raise APIError(
+                                f"API error {resp.status}: {text}",
+                                status_code=resp.status,
+                            )
+                        data = await resp.json()
+                    models = _extract_models(data)
+                    if models:
+                        return models
+                    last_error = APIError("No models returned")
+                    break
+                except APIError as exc:
+                    last_error = exc
+                    if exc.status_code in {429, 500} and attempt < self._max_retries:
+                        delay = self._retry_backoff * (2**attempt)
+                        self._logger.warning(
+                            "request_retry",
+                            extra={"attempt": attempt + 1, "status": exc.status_code, "delay": delay},
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    if exc.status_code == 404:
+                        break
+                    raise
+                except (asyncio.TimeoutError, aiohttp.ClientError) as exc:
+                    last_error = exc
+                    if attempt < self._max_retries:
+                        delay = self._retry_backoff * (2**attempt)
+                        self._logger.warning(
+                            "request_retry",
+                            extra={"attempt": attempt + 1, "error": str(exc), "delay": delay},
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    raise APIError("Network error") from exc
+
+        raise APIError("Failed to fetch models") from last_error
+
+
+def _extract_models(payload: Any) -> list[ModelInfo]:
+    items: list[Any] = []
+    if isinstance(payload, dict):
+        if isinstance(payload.get("data"), list):
+            items = payload.get("data", [])
+        elif isinstance(payload.get("models"), list):
+            items = payload.get("models", [])
+        else:
+            return []
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        return []
+
+    models: list[ModelInfo] = []
+    seen: set[str] = set()
+    for item in items:
+        model_id = None
+        price = None
+        if isinstance(item, str):
+            model_id = item
+        elif isinstance(item, dict):
+            model_id = item.get("id") or item.get("model") or item.get("name")
+            price = _extract_price(item)
+        if model_id and model_id not in seen:
+            seen.add(model_id)
+            models.append(ModelInfo(model_id=model_id, price=price))
+    return sorted(models, key=lambda m: m.model_id)
+
+
+def _extract_price(item: dict[str, Any]) -> float | None:
+    direct = item.get("price") or item.get("cost")
+    if isinstance(direct, (int, float)):
+        return float(direct)
+
+    pricing = item.get("pricing")
+    if isinstance(pricing, dict):
+        parts = []
+        for key in (
+            "input",
+            "output",
+            "prompt",
+            "completion",
+            "input_cost",
+            "output_cost",
+        ):
+            value = pricing.get(key)
+            if isinstance(value, (int, float)):
+                parts.append(float(value))
+        if parts:
+            return sum(parts)
+
+    for key in (
+        "input_price",
+        "output_price",
+        "prompt_price",
+        "completion_price",
+        "price_input",
+        "price_output",
+        "price_per_token",
+    ):
+        value = item.get(key)
+        if isinstance(value, (int, float)):
+            return float(value)
+    return None

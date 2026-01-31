@@ -16,6 +16,7 @@ HELP_MESSAGE = (
     "/help — راهنما\n"
     "/new — پاک‌کردن گفتگو\n"
     "/model — انتخاب Model\n"
+    "/models — لیست مدل‌ها (cheap/expensive)\n"
     "\n"
     "یا فقط پیام متنی خودتان را ارسال کنید."
 )
@@ -36,6 +37,19 @@ BTN_REMOVE = "حذف"
 BTN_USERS = "👥 Users"
 BTN_NEXT = "بعدی"
 BTN_PREV = "قبلی"
+BTN_SAVE = "ذخیره"
+BTN_CLEAR = "پاک‌کردن"
+BTN_REFRESH = "به‌روزرسانی"
+BTN_DEFAULT = "پیش‌فرض"
+BTN_SORT = "مرتب‌سازی"
+BTN_SORT_CHEAP = "ارزان‌ترین"
+BTN_SORT_EXPENSIVE = "گران‌ترین"
+BTN_SORT_DEFAULT = "پیش‌فرض"
+BTN_SEARCH = "جستجو"
+BTN_SEARCH_CLEAR = "پاک‌کردن جستجو"
+BTN_USER_MODEL = "انتخاب مدل"
+BTN_USER_NEW_CHAT = "گفتگوی جدید"
+BTN_USERS_INFO = "اطلاعات کاربری"
 
 ICON_EDIT = "✏️ "
 ICON_REMOVE = "🗑️ "
@@ -55,6 +69,22 @@ ADMIN_USERS_PROMPT = "Select a user for details."
 ADMIN_USERS_EMPTY = "No users yet."
 ADMIN_USERS_NOT_FOUND = "User not found."
 ADMIN_USER_DETAILS_TITLE = "User Details"
+ADMIN_MODELS_TITLE = "Allowed Models"
+ADMIN_MODELS_HINT = "مدل‌های مجاز را انتخاب کنید."
+ADMIN_MODELS_EMPTY = "مدلی یافت نشد."
+ADMIN_MODELS_FETCH_FAILED = "دریافت لیست مدل‌ها ناموفق بود. دوباره تلاش کنید."
+ADMIN_MODELS_API_KEY_MISSING = "API Key تنظیم نشده است. ابتدا آن را وارد کنید."
+ADMIN_MODELS_SELECTED = "تعداد انتخاب‌شده: {count}"
+ADMIN_MODELS_SORT = "مرتب‌سازی: {mode}"
+ADMIN_MODELS_SORT_MENU = "نوع مرتب‌سازی را انتخاب کنید."
+ADMIN_MODELS_SAVED = "لیست مدل‌های مجاز ذخیره شد."
+ADMIN_MODELS_DEFAULT_UPDATED = "Default Model به {model} تغییر کرد تا مجاز باشد."
+ADMIN_MODELS_DEFAULT_TITLE = "انتخاب Default Model"
+ADMIN_MODELS_DEFAULT_HINT = "یک مدل را به‌عنوان پیش‌فرض انتخاب کنید."
+ADMIN_MODELS_DEFAULT_EMPTY = "ابتدا حداقل یک مدل مجاز انتخاب کنید."
+ADMIN_MODELS_SEARCH_PROMPT = "متن جستجو را ارسال کنید."
+ADMIN_MODELS_SEARCH_ACTIVE = "جستجو: {query}"
+ADMIN_MODELS_SEARCH_EMPTY = "نتیجه‌ای پیدا نشد."
 ADMIN_PROMPT_SPONSOR_ADD = "نام Channel را ارسال کنید. مثال: @a یا @a,@b"
 ADMIN_PROMPT_SPONSOR_REMOVE_SELECT = "Channel موردنظر برای حذف را انتخاب کنید."
 ADMIN_PROMPT_SPONSOR_EDIT_SELECT = "Channel موردنظر برای ویرایش را انتخاب کنید."
@@ -78,6 +108,32 @@ API_KEY_MISSING = (
 MODEL_SET = "Model با موفقیت به‌روزرسانی شد."
 MODEL_CURRENT = "Model فعلی: {model}"
 MODEL_USAGE = "برای تغییر Model از دستور /model <model> استفاده کنید."
+MODEL_ALLOWED_LIST = "مدل‌های مجاز: {models}"
+MODEL_NOT_ALLOWED = "مدل انتخاب‌شده مجاز نیست. مدل‌های مجاز: {models}"
+MODELS_LIST_TITLE = "لیست مدل‌های مجاز"
+MODELS_SORT_HINT = "مرتب‌سازی: {mode}"
+MODELS_SORT_USAGE = "برای مرتب‌سازی از /models cheap یا /models expensive استفاده کنید."
+MODELS_SORT_FAILED = "مرتب‌سازی بر اساس قیمت ممکن نیست. مدل‌ها بدون قیمت نمایش داده می‌شوند."
+
+USER_PANEL_HEADER = "✨ زیلما"
+USER_PANEL_WELCOME = "سلام! 👋 من «زیلما» هستم."
+USER_PANEL_SUBTITLE = "دستیار هوش مصنوعی شما برای پاسخ‌های دقیق و سریع 🤖"
+USER_PANEL_ACTIONS = "🟢 شروع سریع: گفتگو جدید | انتخاب مدل | اطلاعات کاربری"
+USER_PANEL_HINT = "👇 یکی رو انتخاب کن:"
+USER_PANEL_START_HINT = "↩️ بازگشت به منو: /start"
+USER_PANEL_USER = "کاربر"
+USER_PANEL_USERNAME = "یوزرنیم"
+USER_PANEL_ID = "شناسه"
+USER_PANEL_MODEL = "مدل فعلی: {model}"
+USER_PANEL_DEFAULT = "مدل پیش‌فرض سیستم: {model}"
+USER_PANEL_ALLOWED = "مدل‌های مجاز: {models}"
+USER_MODELS_TITLE = "انتخاب مدل"
+USER_MODELS_HINT = "یکی از مدل‌های مجاز را انتخاب کنید."
+USER_MODELS_EMPTY = "مدل مجاز تنظیم نشده است."
+USER_MODEL_UPDATED = "مدل شما به‌روزرسانی شد."
+USER_COMMAND_FALLBACK = "از دکمه‌های پنل استفاده کنید."
+USER_INFO_TITLE = "اطلاعات کاربری"
+USER_INFO_HINT = "برای بازگشت به پنل از دکمه پایین استفاده کنید."
 
 CONFIG_UPDATED = "Settings با موفقیت ذخیره شد."
 CONFIG_INVALID_KEY = "Setting انتخاب‌شده معتبر نیست."

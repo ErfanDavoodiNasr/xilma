@@ -122,14 +122,16 @@ def build_application() -> Application:
         states={
             admin_handlers.ADMIN_MENU: [
                 CallbackQueryHandler(
-                    admin_handlers.handle_admin_callback, pattern="^(cfg|sponsor):"
+                    admin_handlers.handle_admin_callback,
+                    pattern="^(cfg|sponsor|models|users|default_model):",
                 ),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_handlers.handle_admin_menu_text),
             ],
             admin_handlers.WAITING_INPUT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_handlers.handle_admin_input),
                 CallbackQueryHandler(
-                    admin_handlers.handle_admin_callback, pattern="^(cfg|sponsor):"
+                    admin_handlers.handle_admin_callback,
+                    pattern="^(cfg|sponsor|models|users|default_model):",
                 ),
             ],
         },
@@ -140,13 +142,13 @@ def build_application() -> Application:
     application.add_handler(admin_conversation)
 
     application.add_handler(CommandHandler("start", user_handlers.start))
-    application.add_handler(CommandHandler("help", user_handlers.help_command))
-    application.add_handler(CommandHandler("new", user_handlers.new_chat))
-    application.add_handler(CommandHandler("model", user_handlers.set_model))
-
     application.add_handler(
         CallbackQueryHandler(user_handlers.check_membership, pattern="^check_membership$")
     )
+    application.add_handler(
+        CallbackQueryHandler(user_handlers.handle_user_callback, pattern="^user:")
+    )
+    application.add_handler(MessageHandler(filters.COMMAND, user_handlers.command_fallback))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_handlers.chat))
     application.add_handler(MessageHandler(~filters.TEXT & ~filters.COMMAND, user_handlers.unsupported))

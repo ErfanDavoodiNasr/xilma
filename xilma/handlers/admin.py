@@ -15,7 +15,8 @@ from xilma.config import (
     ConfigValidationError,
     serialize_setting_value,
 )
-from xilma.errors import UserVisibleError
+from xilma.ai_client import ModelInfo
+from xilma.errors import APIError, UserVisibleError
 from xilma.logging_setup import setup_logging
 from xilma.services.sponsor import normalize_channel, parse_channels_csv
 from xilma.utils import log_incoming_message, log_outgoing_message, new_reference_id, reply_text
@@ -23,6 +24,8 @@ from xilma.utils import log_incoming_message, log_outgoing_message, new_referenc
 
 ADMIN_MENU, WAITING_INPUT = range(2)
 USERS_PAGE_SIZE = 10
+MODELS_PAGE_SIZE = 12
+DEFAULT_MODELS_PAGE_SIZE = 12
 
 
 def _set_sponsor_menu_active(context: ContextTypes.DEFAULT_TYPE, active: bool) -> None:
@@ -194,6 +197,322 @@ def _build_users_menu(
 def _build_user_detail_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton(text=texts.BTN_BACK, callback_data="users:list")]]
+    )
+
+
+def _build_models_menu(
+    models: list[ModelInfo],
+    selected: set[str],
+    page: int,
+    pages: int,
+    default_model: str,
+    *,
+    search_active: bool,
+) -> InlineKeyboardMarkup:
+    start = (page - 1) * MODELS_PAGE_SIZE
+    end = start + MODELS_PAGE_SIZE
+    keyboard: list[list[InlineKeyboardButton]] = []
+
+    for idx, model in enumerate(models[start:end], start=start):
+        icon = "✅" if model.model_id in selected else "⬜"
+        star = " ⭐" if model.model_id == default_model else ""
+        price = _format_model_price(model.price)
+        label = f"{icon} {model.model_id}{star}{price}"
+        keyboard.append(
+            [InlineKeyboardButton(text=label, callback_data=f"models:toggle:{idx}")]
+        )
+
+    nav_row: list[InlineKeyboardButton] = []
+    if page > 1:
+        nav_row.append(
+            InlineKeyboardButton(text=texts.BTN_PREV, callback_data=f"models:page:{page - 1}")
+        )
+    if page < pages:
+        nav_row.append(
+            InlineKeyboardButton(text=texts.BTN_NEXT, callback_data=f"models:page:{page + 1}")
+        )
+    if nav_row:
+        keyboard.append(nav_row)
+
+    if search_active:
+        keyboard.append(
+            [InlineKeyboardButton(text=texts.BTN_SEARCH_CLEAR, callback_data="models:search:clear")]
+        )
+    else:
+        keyboard.append([InlineKeyboardButton(text=texts.BTN_SEARCH, callback_data="models:search")])
+
+    keyboard.append(
+        [
+            InlineKeyboardButton(text=texts.BTN_SORT, callback_data="models:sort"),
+            InlineKeyboardButton(text=texts.BTN_BACK, callback_data="models:back"),
+        ]
+    )
+    return InlineKeyboardMarkup(keyboard)
+
+
+def _build_default_models_menu(
+    models: list[str],
+    current_default: str,
+    page: int,
+    pages: int,
+) -> InlineKeyboardMarkup:
+    start = (page - 1) * DEFAULT_MODELS_PAGE_SIZE
+    end = start + DEFAULT_MODELS_PAGE_SIZE
+    keyboard: list[list[InlineKeyboardButton]] = []
+
+    for idx, model in enumerate(models[start:end], start=start):
+        icon = "✅" if model == current_default else "⬜"
+        keyboard.append(
+            [InlineKeyboardButton(text=f"{icon} {model}", callback_data=f"default_model:set:{idx}")]
+        )
+
+    nav_row: list[InlineKeyboardButton] = []
+    if page > 1:
+        nav_row.append(
+            InlineKeyboardButton(
+                text=texts.BTN_PREV, callback_data=f"default_model:page:{page - 1}"
+            )
+        )
+    if page < pages:
+        nav_row.append(
+            InlineKeyboardButton(
+                text=texts.BTN_NEXT, callback_data=f"default_model:page:{page + 1}"
+            )
+        )
+    if nav_row:
+        keyboard.append(nav_row)
+
+    keyboard.append([InlineKeyboardButton(text=texts.BTN_BACK, callback_data="default_model:back")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def _build_models_sort_menu(current_mode: str) -> InlineKeyboardMarkup:
+    def _label(text: str, mode: str) -> str:
+        return f"✅ {text}" if current_mode == mode else text
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text=_label(texts.BTN_SORT_CHEAP, "cheap"),
+                callback_data="models:sort:set:cheap",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=_label(texts.BTN_SORT_EXPENSIVE, "expensive"),
+                callback_data="models:sort:set:expensive",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=_label(texts.BTN_SORT_DEFAULT, "name"),
+                callback_data="models:sort:set:default",
+            )
+        ],
+        [InlineKeyboardButton(text=texts.BTN_BACK, callback_data="models:sort:back")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def _format_allowed_models(models: list[str], limit: int = 10) -> str:
+    if not models:
+        return "-"
+    if len(models) <= limit:
+        return ", ".join(models)
+    return ", ".join(models[:limit]) + " ..."
+
+
+def _format_model_price(price: float | None) -> str:
+    if price is None:
+        return ""
+    return f" (~{price:g})"
+
+
+def _format_sort_mode(mode: str) -> str:
+    if mode == "cheap":
+        return texts.BTN_SORT_CHEAP
+    if mode == "expensive":
+        return texts.BTN_SORT_EXPENSIVE
+    return texts.BTN_SORT_DEFAULT
+
+
+def _sort_models(models: list[ModelInfo], mode: str) -> list[ModelInfo]:
+    if mode == "cheap":
+        return sorted(
+            models,
+            key=lambda m: (m.price is None, m.price if m.price is not None else 0.0, m.model_id),
+        )
+    if mode == "expensive":
+        return sorted(
+            models,
+            key=lambda m: (m.price is None, -(m.price or 0.0), m.model_id),
+        )
+    return sorted(models, key=lambda m: m.model_id)
+
+
+async def _fetch_models_from_api(
+    ai_client, config: ConfigStore
+) -> list[ModelInfo]:
+    if not config.data.api_key:
+        raise UserVisibleError(texts.ADMIN_MODELS_API_KEY_MISSING)
+    try:
+        return await ai_client.list_models()
+    except APIError:
+        raise UserVisibleError(texts.ADMIN_MODELS_FETCH_FAILED) from None
+
+
+async def _show_models_menu(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    reference_id: str,
+    *,
+    refresh: bool = False,
+) -> None:
+    config: ConfigStore | None = context.application.bot_data.get("config")
+    ai_client = context.application.bot_data.get("ai_client")
+    if config is None or ai_client is None:
+        raise RuntimeError("Config missing")
+
+    if refresh or "models_cache" not in context.user_data:
+        try:
+            models = await _fetch_models_from_api(ai_client, config)
+        except UserVisibleError as exc:
+            await _send_panel_message(
+                update,
+                context,
+                text=str(exc),
+                reply_markup=_build_main_menu(),
+                reference_id=reference_id,
+            )
+            return
+        context.user_data["models_cache"] = models
+        context.user_data["models_page"] = 1
+    else:
+        models = context.user_data.get("models_cache", [])
+
+    selected = context.user_data.get("models_selected")
+    if not isinstance(selected, set):
+        selected = set(config.data.allowed_models)
+        context.user_data["models_selected"] = selected
+
+    sort_mode = context.user_data.get("models_sort", "name")
+    if sort_mode not in {"name", "cheap", "expensive"}:
+        sort_mode = "name"
+        context.user_data["models_sort"] = sort_mode
+    sorted_models = _sort_models(models, sort_mode)
+    context.user_data["models_view_all"] = [m.model_id for m in sorted_models]
+
+    query = context.user_data.get("models_query", "")
+    query = query.strip()
+    if query:
+        filtered_models = [
+            model for model in sorted_models if query.lower() in model.model_id.lower()
+        ]
+    else:
+        filtered_models = sorted_models
+    context.user_data["models_view"] = [m.model_id for m in filtered_models]
+
+    if not models:
+        await _send_panel_message(
+            update,
+            context,
+            text="\n".join([texts.ADMIN_MODELS_TITLE, texts.ADMIN_MODELS_EMPTY]),
+            reply_markup=_build_main_menu(),
+            reference_id=reference_id,
+        )
+        return
+
+    if query and not filtered_models:
+        await _send_panel_message(
+            update,
+            context,
+            text="\n".join(
+                [
+                    texts.ADMIN_MODELS_TITLE,
+                    texts.ADMIN_MODELS_HINT,
+                    texts.ADMIN_MODELS_SEARCH_ACTIVE.format(query=query),
+                    texts.ADMIN_MODELS_SEARCH_EMPTY,
+                ]
+            ),
+            reply_markup=_build_models_menu(
+                [],
+                selected,
+                page=1,
+                pages=1,
+                default_model=config.data.default_model,
+                search_active=True,
+            ),
+            reference_id=reference_id,
+        )
+        return
+
+    pages = max(1, math.ceil(len(filtered_models) / MODELS_PAGE_SIZE))
+    page = context.user_data.get("models_page", 1)
+    page = max(1, min(page, pages))
+    context.user_data["models_page"] = page
+
+    lines = [
+        texts.ADMIN_MODELS_TITLE,
+        texts.ADMIN_MODELS_HINT,
+        texts.ADMIN_MODELS_SELECTED.format(count=len(selected)),
+        texts.ADMIN_MODELS_SORT.format(mode=_format_sort_mode(sort_mode)),
+    ]
+    if query:
+        lines.append(texts.ADMIN_MODELS_SEARCH_ACTIVE.format(query=query))
+
+    if config.data.allowed_models:
+        lines.append(f"{texts.MODEL_ALLOWED_LIST.format(models=_format_allowed_models(config.data.allowed_models))}")
+
+    await _send_panel_message(
+        update,
+        context,
+        text="\n".join(lines),
+        reply_markup=_build_models_menu(
+            filtered_models,
+            selected,
+            page,
+            pages,
+            config.data.default_model,
+            search_active=bool(query),
+        ),
+        reference_id=reference_id,
+    )
+
+
+async def _show_default_model_menu(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    reference_id: str,
+) -> None:
+    config: ConfigStore | None = context.application.bot_data.get("config")
+    if config is None:
+        raise RuntimeError("Config missing")
+
+    allowed = list(config.data.allowed_models)
+    if not allowed:
+        await _send_panel_message(
+            update,
+            context,
+            text=texts.ADMIN_MODELS_DEFAULT_EMPTY,
+            reply_markup=_build_main_menu(),
+            reference_id=reference_id,
+        )
+        return
+
+    page = context.user_data.get("default_models_page", 1)
+    pages = max(1, math.ceil(len(allowed) / DEFAULT_MODELS_PAGE_SIZE))
+    page = max(1, min(page, pages))
+    context.user_data["default_models_page"] = page
+    context.user_data["default_models_view"] = allowed
+
+    await _send_panel_message(
+        update,
+        context,
+        text="\n".join([texts.ADMIN_MODELS_DEFAULT_TITLE, texts.ADMIN_MODELS_DEFAULT_HINT]),
+        reply_markup=_build_default_models_menu(
+            allowed, config.data.default_model, page, pages
+        ),
+        reference_id=reference_id,
     )
 
 
@@ -493,6 +812,105 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await _show_sponsor_menu(update, context, reference_id)
         return ADMIN_MENU
 
+    if data == "models:back":
+        context.user_data.pop("config_pending", None)
+        context.user_data.pop("models_page", None)
+        await _show_main_menu(update, context, reference_id)
+        return ADMIN_MENU
+
+    if data == "models:sort":
+        sort_mode = context.user_data.get("models_sort", "name")
+        if sort_mode not in {"name", "cheap", "expensive"}:
+            sort_mode = "name"
+            context.user_data["models_sort"] = sort_mode
+        await _send_panel_message(
+            update,
+            context,
+            text="\n".join(
+                [
+                    texts.ADMIN_MODELS_SORT_MENU,
+                    texts.ADMIN_MODELS_SORT.format(mode=_format_sort_mode(sort_mode)),
+                ]
+            ),
+            reply_markup=_build_models_sort_menu(sort_mode),
+            reference_id=reference_id,
+        )
+        return ADMIN_MENU
+
+    if data == "models:sort:back":
+        await _show_models_menu(update, context, reference_id)
+        return ADMIN_MENU
+
+    if data.startswith("models:sort:set:"):
+        selected_mode = data.split(":", 3)[3]
+        if selected_mode == "default":
+            selected_mode = "name"
+        if selected_mode in {"name", "cheap", "expensive"}:
+            context.user_data["models_sort"] = selected_mode
+        await _show_models_menu(update, context, reference_id)
+        return ADMIN_MENU
+
+    if data == "models:search":
+        context.user_data["config_pending"] = {"type": "models_search"}
+        await _send_panel_message(
+            update,
+            context,
+            text=texts.ADMIN_MODELS_SEARCH_PROMPT,
+            reply_markup=_build_cancel_menu(),
+            reference_id=reference_id,
+        )
+        return WAITING_INPUT
+
+    if data == "models:search:clear":
+        context.user_data.pop("models_query", None)
+        await _show_models_menu(update, context, reference_id)
+        return ADMIN_MENU
+
+    if data.startswith("models:page:"):
+        try:
+            page = int(data.split(":", 2)[2])
+        except ValueError:
+            return ADMIN_MENU
+        context.user_data["models_page"] = page
+        await _show_models_menu(update, context, reference_id)
+        return ADMIN_MENU
+
+    if data.startswith("models:toggle:"):
+        config: ConfigStore | None = context.application.bot_data.get("config")
+        db = context.application.bot_data.get("db")
+        if config is None or db is None:
+            raise RuntimeError("Config missing")
+        try:
+            idx = int(data.split(":", 2)[2])
+        except ValueError:
+            return ADMIN_MENU
+        models_view = context.user_data.get("models_view", [])
+        if not isinstance(models_view, list) or idx < 0 or idx >= len(models_view):
+            return ADMIN_MENU
+        selected = context.user_data.get("models_selected")
+        if not isinstance(selected, set):
+            selected = set()
+        model_id = models_view[idx]
+        if model_id in selected:
+            selected.remove(model_id)
+        else:
+            selected.add(model_id)
+        context.user_data["models_selected"] = selected
+
+        models_view_all = context.user_data.get("models_view_all", [])
+        if isinstance(selected, set) and isinstance(models_view_all, list):
+            selected_list = [model for model in models_view_all if model in selected]
+        else:
+            selected_list = []
+        raw_value = ",".join(selected_list) if selected_list else "unset"
+        await _persist_setting(config, db, "ALLOWED_MODELS", raw_value)
+
+        if selected_list and config.data.default_model not in selected_list:
+            new_default = selected_list[0]
+            await _persist_setting(config, db, "DEFAULT_MODEL", new_default)
+        await _show_models_menu(update, context, reference_id)
+        return ADMIN_MENU
+
     if data == "sponsor:add":
         context.user_data["config_pending"] = {"type": "sponsor_add"}
         _set_sponsor_menu_active(context, False)
@@ -561,6 +979,37 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await _show_main_menu(update, context, reference_id)
         return ADMIN_MENU
 
+    if data == "default_model:back":
+        context.user_data.pop("default_models_page", None)
+        await _show_main_menu(update, context, reference_id)
+        return ADMIN_MENU
+
+    if data.startswith("default_model:page:"):
+        try:
+            page = int(data.split(":", 2)[2])
+        except ValueError:
+            return ADMIN_MENU
+        context.user_data["default_models_page"] = page
+        await _show_default_model_menu(update, context, reference_id)
+        return ADMIN_MENU
+
+    if data.startswith("default_model:set:"):
+        config: ConfigStore | None = context.application.bot_data.get("config")
+        db = context.application.bot_data.get("db")
+        if config is None or db is None:
+            raise RuntimeError("Config missing")
+        try:
+            idx = int(data.split(":", 2)[2])
+        except ValueError:
+            return ADMIN_MENU
+        models_view = context.user_data.get("default_models_view", [])
+        if not isinstance(models_view, list) or idx < 0 or idx >= len(models_view):
+            return ADMIN_MENU
+        model_id = models_view[idx]
+        await _persist_setting(config, db, "DEFAULT_MODEL", model_id)
+        await _show_default_model_menu(update, context, reference_id)
+        return ADMIN_MENU
+
     if data.startswith("users:page:"):
         context.user_data.pop("config_pending", None)
         try:
@@ -594,6 +1043,13 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
         if spec.key == "SPONSOR_CHANNELS":
             await _show_sponsor_menu(update, context, reference_id)
+            return ADMIN_MENU
+        if spec.key == "ALLOWED_MODELS":
+            await _show_models_menu(update, context, reference_id, refresh=True)
+            return ADMIN_MENU
+        if spec.key == "DEFAULT_MODEL":
+            context.user_data.pop("config_pending", None)
+            await _show_default_model_menu(update, context, reference_id)
             return ADMIN_MENU
 
         context.user_data["config_pending"] = {"key": spec.key}
@@ -694,10 +1150,19 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
     raw_text = update.message.text.strip()
     pending_type = pending.get("type")
     key = pending.get("key")
-    if not key and pending_type not in {"sponsor_add", "sponsor_edit"}:
+    if not key and pending_type not in {"sponsor_add", "sponsor_edit", "models_search"}:
         raise UserVisibleError(texts.CONFIG_INVALID_KEY)
 
     try:
+        if pending_type == "models_search":
+            if raw_text:
+                context.user_data["models_query"] = raw_text
+            else:
+                context.user_data.pop("models_query", None)
+            context.user_data["models_page"] = 1
+            context.user_data.pop("config_pending", None)
+            await _show_models_menu(update, context, reference_id)
+            return ADMIN_MENU
         if pending_type in {"sponsor_add", "sponsor_edit"}:
             if pending_type == "sponsor_add":
                 _add_sponsor_channels(sponsor_service, raw_text)

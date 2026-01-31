@@ -37,13 +37,10 @@ python bot.py
 
 ## Commands (Persian UI)
 
-- `/start` — شروع
-- `/help` — راهنما
-- `/new` — پاک‌کردن گفتگو
-- `/model <name>` — انتخاب مدل پاسخ‌دهی
-- `/admin` — پنل مدیریت شیشه‌ای (فقط مدیر)
+- `/start` — نمایش پنل کاربری
+- `/admin` — پنل مدیریت (فقط مدیر)
 
-`/model` accepts any model identifier supported by your API (e.g. `gpt-4o`).
+تمام امکانات کاربر از داخل پنل انجام می‌شود و نیازی به دستورهای جداگانه ندارد.
 
 ## Admin Panel UX
 

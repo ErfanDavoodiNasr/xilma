@@ -23,6 +23,7 @@ class Config:
     api_key: str | None
     base_url: str
     default_model: str
+    allowed_models: list[str]
     max_retries: int
     retry_backoff: float
     temperature: float | None
@@ -88,6 +89,13 @@ SETTINGS_SPECS: list[SettingSpec] = [
         min_len=2,
         max_len=80,
         regex=r"^[A-Za-z0-9._:/-]+$",
+    ),
+    SettingSpec(
+        key="ALLOWED_MODELS",
+        attr="allowed_models",
+        label="🧩 Allowed Models",
+        kind="models",
+        optional=True,
     ),
     SettingSpec(
         key="MAX_RETRIES",
@@ -183,6 +191,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "API_KEY": None,
     "BASE_URL": "https://api.avalai.ir",
     "DEFAULT_MODEL": "gpt-4o",
+    "ALLOWED_MODELS": [],
     "MAX_RETRIES": 1,
     "RETRY_BACKOFF": 0.5,
     "TEMPERATURE": None,
@@ -305,6 +314,19 @@ def _validate_channels(raw: str, optional: bool) -> list[str]:
     return channels
 
 
+def _validate_models(raw: str, optional: bool) -> list[str]:
+    if optional and _parse_optional(raw) is None:
+        return []
+    items = [item.strip() for item in raw.split(",") if item.strip()]
+    models: list[str] = []
+    for item in items:
+        if not re.fullmatch(r"[A-Za-z0-9._:/-]+", item):
+            raise ConfigValidationError(texts.VALIDATION_INVALID_FORMAT)
+        if item not in models:
+            models.append(item)
+    return models
+
+
 class ConfigStore:
     def __init__(self, config: Config) -> None:
         self._config = config
@@ -330,6 +352,8 @@ class ConfigStore:
             value = _validate_bool(raw_value)
         elif spec.kind == "channels":
             value = _validate_channels(raw_value, spec.optional)
+        elif spec.kind == "models":
+            value = _validate_models(raw_value, spec.optional)
         else:
             raise ConfigValidationError(texts.CONFIG_INVALID_KEY)
 
@@ -339,10 +363,12 @@ class ConfigStore:
         data = {}
         for spec in SETTINGS_SPECS:
             value = getattr(self._config, spec.attr)
-            if spec.kind == "channels":
-                value = ", ".join(value) if value else "-"
-            if masked and spec.secret and value:
-                value = f"{str(value)[:3]}***{str(value)[-3:]}"
+        if spec.kind == "channels":
+            value = ", ".join(value) if value else "-"
+        if spec.kind == "models":
+            value = ", ".join(value) if value else "-"
+        if masked and spec.secret and value:
+            value = f"{str(value)[:3]}***{str(value)[-3:]}"
             data[spec.key] = value
         return data
 
@@ -367,6 +393,9 @@ def serialize_setting_value(spec: SettingSpec, value: Any) -> str | None:
     if spec.kind == "channels":
         channels = list(value) if value else []
         return ",".join(channels) if channels else None
+    if spec.kind == "models":
+        models = list(value) if value else []
+        return ",".join(models) if models else None
     return str(value)
 
 
@@ -423,6 +452,7 @@ def build_config_store(
         api_key=DEFAULT_SETTINGS["API_KEY"],
         base_url=DEFAULT_SETTINGS["BASE_URL"],
         default_model=DEFAULT_SETTINGS["DEFAULT_MODEL"],
+        allowed_models=list(DEFAULT_SETTINGS["ALLOWED_MODELS"]),
         max_retries=DEFAULT_SETTINGS["MAX_RETRIES"],
         retry_backoff=DEFAULT_SETTINGS["RETRY_BACKOFF"],
         temperature=DEFAULT_SETTINGS["TEMPERATURE"],
