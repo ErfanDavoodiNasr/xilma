@@ -201,8 +201,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "LOG_LEVEL": "INFO",
     "LOG_FORMAT": "both",
     "LOG_ANONYMIZE_USER_IDS": True,
-    "LOG_MESSAGE_BODY": True,
-    "LOG_MESSAGE_HEADERS": True,
+    "LOG_MESSAGE_BODY": False,
+    "LOG_MESSAGE_HEADERS": False,
 }
 
 
@@ -363,12 +363,12 @@ class ConfigStore:
         data = {}
         for spec in SETTINGS_SPECS:
             value = getattr(self._config, spec.attr)
-        if spec.kind == "channels":
-            value = ", ".join(value) if value else "-"
-        if spec.kind == "models":
-            value = ", ".join(value) if value else "-"
-        if masked and spec.secret and value:
-            value = f"{str(value)[:3]}***{str(value)[-3:]}"
+            if spec.kind == "channels":
+                value = ", ".join(value) if value else "-"
+            if spec.kind == "models":
+                value = ", ".join(value) if value else "-"
+            if masked and spec.secret and value:
+                value = f"{str(value)[:3]}***{str(value)[-3:]}"
             data[spec.key] = value
         return data
 
