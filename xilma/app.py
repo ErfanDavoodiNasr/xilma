@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from telegram.ext import (
@@ -33,10 +32,43 @@ from xilma.services.sponsor import SponsorService
 logger = logging.getLogger("xilma.app")
 
 
-async def _on_startup(app: Application) -> None:
+async def _post_init(
+    app: Application,
+    *,
+    db: Database,
+    bot_token: str,
+    admin_user_id: int,
+) -> None:
+    defaults = default_settings_raw()
+    await db.migrate()
+    await db.ensure_settings_defaults(defaults)
+    settings = await db.fetch_settings()
+    settings, env_updates = apply_env_overrides(settings=settings, defaults=defaults)
+    for key, value in env_updates.items():
+        await db.set_setting(key, value)
+
+    config_store = build_config_store(
+        telegram_bot_token=bot_token,
+        admin_user_id=admin_user_id,
+        settings=settings,
+    )
+    setup_logging(config_store.data.log_level, config_store.data.log_format)
+    app.bot_data["config"] = config_store
+
     ai_client = app.bot_data.get("ai_client")
     if ai_client:
+        ai_client.update_settings(
+            api_key=config_store.data.api_key or "",
+            base_url=config_store.data.base_url,
+            max_retries=config_store.data.max_retries,
+            retry_backoff=config_store.data.retry_backoff,
+        )
         await ai_client.start()
+
+    sponsor_service = app.bot_data.get("sponsor_service")
+    if sponsor_service:
+        sponsor_service.set_channels(config_store.data.sponsor_channels)
+
     logger.info("bot_started")
 
 
@@ -55,18 +87,10 @@ def build_application() -> Application:
     database_url = load_database_url()
     bot_token, admin_user_id = load_env_credentials()
     db = Database(database_url)
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(db.migrate())
-    defaults = default_settings_raw()
-    loop.run_until_complete(db.ensure_settings_defaults(defaults))
-    settings = loop.run_until_complete(db.fetch_settings())
-    settings, env_updates = apply_env_overrides(settings=settings, defaults=defaults)
-    for key, value in env_updates.items():
-        loop.run_until_complete(db.set_setting(key, value))
     config_store = build_config_store(
         telegram_bot_token=bot_token,
         admin_user_id=admin_user_id,
-        settings=settings,
+        settings=default_settings_raw(),
     )
     setup_logging(config_store.data.log_level, config_store.data.log_format)
 
@@ -81,7 +105,7 @@ def build_application() -> Application:
     application = (
         ApplicationBuilder()
         .token(config_store.data.telegram_bot_token)
-        .post_init(_on_startup)
+        .post_init(lambda app: _post_init(app, db=db, bot_token=bot_token, admin_user_id=admin_user_id))
         .post_shutdown(_on_shutdown)
         .build()
     )
@@ -133,11 +157,5 @@ def build_application() -> Application:
 
 
 def run() -> None:
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
     app = build_application()
     app.run_polling()
