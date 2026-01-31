@@ -153,6 +153,7 @@ Optional env vars to skip prompts:
   POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, DATABASE_URL
   API_KEY, BASE_URL, DEFAULT_MODEL, LOG_FORMAT
   INSTALL_DOCKER
+  SYNC_ENV (update only: auto/yes/no, default auto)
   ENV_PATH (path to .env, default: ./.env)
 
 Modes:
@@ -252,7 +253,13 @@ if [ "$INSTALL_DOCKER" != "yes" ] && [ "$INSTALL_DOCKER" != "no" ] && [ -n "$INS
   die "INSTALL_DOCKER must be 'yes' or 'no'"
 fi
 
-# Prepare .env (deploy mode only)
+# Prepare .env for upload
+SYNC_ENV="${SYNC_ENV:-auto}"
+SYNC_ENV="$(echo "$SYNC_ENV" | tr '[:upper:]' '[:lower:]')"
+if [ "$SYNC_ENV" != "auto" ] && [ "$SYNC_ENV" != "yes" ] && [ "$SYNC_ENV" != "no" ]; then
+  die "SYNC_ENV must be auto, yes, or no"
+fi
+
 if [ "$MODE" = "deploy" ]; then
   info "Preparing temporary .env for upload..."
   ENV_FILE="$(mktemp)"
@@ -285,6 +292,32 @@ if [ "$MODE" = "deploy" ]; then
     emit_env_optional "DEFAULT_MODEL" "$DEFAULT_MODEL"
     emit_env_optional "LOG_FORMAT" "$LOG_FORMAT"
   } > "$ENV_FILE"
+else
+  if [ "$SYNC_ENV" = "auto" ]; then
+    if [ -f "$ENV_PATH" ]; then
+      SYNC_ENV="yes"
+    else
+      SYNC_ENV="no"
+    fi
+  fi
+  if [ "$SYNC_ENV" = "yes" ]; then
+    info "Preparing temporary .env from $ENV_PATH"
+    if [ ! -f "$ENV_PATH" ]; then
+      die "Env file not found at $ENV_PATH"
+    fi
+    ENV_FILE="$(mktemp)"
+    chmod 600 "$ENV_FILE"
+    cp "$ENV_PATH" "$ENV_FILE"
+    if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && ! grep -q '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE"; then
+      escape_env_update() {
+        local v="$1"
+        v="${v//\\/\\\\}"
+        v="${v//\"/\\\"}"
+        printf '"%s"' "$v"
+      }
+      echo "TELEGRAM_BOT_TOKEN=$(escape_env_update "$TELEGRAM_BOT_TOKEN")" >> "$ENV_FILE"
+    fi
+  fi
 fi
 
 # Summary
@@ -306,6 +339,7 @@ if [ "$MODE" = "deploy" ]; then
   echo "DATABASE_URL:    $DATABASE_URL"
 else
   echo "Ref:             ${REPO_BRANCH:-<keep current>}"
+  echo "Env sync:        ${SYNC_ENV}"
 fi
 
 if ! confirm "Proceed with deployment?"; then
@@ -329,9 +363,9 @@ elif [ "$DEPLOY_AUTH" = "key" ]; then
   fi
 fi
 
-# Upload .env to remote temp (deploy mode only)
+# Upload .env to remote temp (if prepared)
 REMOTE_ENV=""
-if [ "$MODE" = "deploy" ]; then
+if [ -n "${ENV_FILE:-}" ]; then
   REMOTE_ENV="/tmp/xilma.env.$RANDOM.$RANDOM"
   info "Uploading .env to remote..."
   "${SCP_CMD[@]}" "${SCP_OPTS[@]}" "$ENV_FILE" "$SSH_TARGET:$REMOTE_ENV"
@@ -516,14 +550,26 @@ else
     cd "$APP_DIR"
   fi
 
-  # Install .env
-  if [ ! -f "$ENV_SRC" ]; then
-    die "Remote env file not found: $ENV_SRC"
+  # Install .env if provided
+  if [ -n "${ENV_SRC:-}" ]; then
+    if [ ! -f "$ENV_SRC" ]; then
+      die "Remote env file not found: $ENV_SRC"
+    fi
+    log "Installing .env"
+    install -m 600 "$ENV_SRC" "$APP_DIR/.env"
+    rm -f "$ENV_SRC"
   fi
+fi
 
-  log "Installing .env"
-  install -m 600 "$ENV_SRC" "$APP_DIR/.env"
-  rm -f "$ENV_SRC"
+# Install .env on update if provided
+if [ "$MODE" = "update" ] && [ -n "${ENV_SRC:-}" ]; then
+  if [ ! -f "$ENV_SRC" ]; then
+    warn "Remote env file not found: $ENV_SRC"
+  else
+    log "Installing .env"
+    install -m 600 "$ENV_SRC" "$APP_DIR/.env"
+    rm -f "$ENV_SRC"
+  fi
 fi
 
 # Build and run
