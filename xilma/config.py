@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from xilma import texts
+from xilma.services.sponsor import normalize_channel
 
 
 class ConfigValidationError(ValueError):
@@ -285,17 +286,11 @@ def _validate_bool(raw: str) -> bool:
 
 
 def _normalize_channel(raw: str) -> str:
-    cleaned = raw.strip()
-    if cleaned.startswith("https://t.me/") or cleaned.startswith("http://t.me/"):
-        cleaned = cleaned.split("t.me/", 1)[1]
-    if cleaned.startswith("t.me/"):
-        cleaned = cleaned.split("t.me/", 1)[1]
-    if cleaned.startswith("+") or cleaned.startswith("joinchat/"):
-        raise ConfigValidationError(texts.SPONSOR_INVALID)
-    username = cleaned[1:] if cleaned.startswith("@") else cleaned
-    if not username.replace("_", "").isalnum():
-        raise ConfigValidationError(texts.SPONSOR_INVALID)
-    return f"@{username}"
+    try:
+        channel = normalize_channel(raw)
+    except ValueError as exc:
+        raise ConfigValidationError(texts.SPONSOR_INVALID) from exc
+    return channel.label
 
 
 def _validate_channels(raw: str, optional: bool) -> list[str]:

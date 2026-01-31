@@ -482,11 +482,6 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await _show_main_menu(update, context, reference_id)
         return ADMIN_MENU
 
-    if data == "cfg:sponsors":
-        context.user_data.pop("config_pending", None)
-        await _show_sponsor_menu(update, context, reference_id)
-        return ADMIN_MENU
-
     if data == "sponsor:back":
         context.user_data.pop("config_pending", None)
         _set_sponsor_menu_active(context, False)

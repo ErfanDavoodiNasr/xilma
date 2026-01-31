@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import asyncio
 import logging
 from typing import Iterable
 
@@ -68,6 +69,8 @@ class SponsorService:
     def __init__(self, initial_channels: Iterable[str]) -> None:
         self._logger = logging.getLogger("xilma.sponsor")
         self._channels: list[SponsorChannel] = []
+        self._membership_retries = 1
+        self._membership_backoff = 0.5
         self.set_channels(list(initial_channels))
 
     def list_channels(self) -> list[SponsorChannel]:
@@ -107,14 +110,26 @@ class SponsorService:
         if not self._channels:
             return True
         for channel in self._channels:
-            try:
-                member = await bot.get_chat_member(chat_id=channel.chat_id, user_id=user_id)
-            except TelegramError as exc:
+            member = None
+            last_error: TelegramError | None = None
+            for attempt in range(self._membership_retries + 1):
+                try:
+                    member = await bot.get_chat_member(
+                        chat_id=channel.chat_id, user_id=user_id
+                    )
+                    last_error = None
+                    break
+                except TelegramError as exc:
+                    last_error = exc
+                    if attempt < self._membership_retries:
+                        await asyncio.sleep(self._membership_backoff * (2**attempt))
+                        continue
+            if last_error is not None:
                 self._logger.warning(
                     "membership_check_failed",
-                    extra={"channel": channel.chat_id, "error": str(exc)},
+                    extra={"channel": channel.chat_id, "error": str(last_error)},
                 )
-                return False
+                return True
             if member.status not in {"member", "administrator", "creator"}:
                 return False
         return True
