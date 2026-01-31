@@ -8,7 +8,13 @@ from telegram.ext import ContextTypes
 from xilma import texts
 from xilma.config import ConfigStore
 from xilma.errors import UserVisibleError
-from xilma.utils import anonymize_user_id, log_incoming_message, new_reference_id, reply_text
+from xilma.utils import (
+    anonymize_user_id,
+    format_telegram_message,
+    log_incoming_message,
+    new_reference_id,
+    reply_text,
+)
 
 
 logger = logging.getLogger("xilma.handlers.user")
@@ -222,7 +228,14 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user=str(user_id) if user_id else None,
     )
 
-    await reply_text(update, response.content, context, reference_id=reference_id)
+    formatted_text, parse_mode = format_telegram_message(response.content)
+    await reply_text(
+        update,
+        formatted_text,
+        context,
+        reference_id=reference_id,
+        parse_mode=parse_mode,
+    )
 
     history.append({"role": "user", "content": update.message.text})
     history.append({"role": "assistant", "content": response.content})

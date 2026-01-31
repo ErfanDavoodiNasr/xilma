@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import logging
+import re
 from typing import Any
 from uuid import uuid4
 
 from telegram import Message, Update
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 
@@ -16,6 +19,34 @@ def anonymize_user_id(user_id: int) -> str:
 
 def new_reference_id() -> str:
     return uuid4().hex
+
+
+_CODE_FENCE_RE = re.compile(r"```([^\n`]*)\n(.*?)```", re.DOTALL)
+
+
+def format_telegram_message(text: str) -> tuple[str, str | None]:
+    if "```" not in text:
+        return text, None
+
+    parts: list[str] = []
+    last_end = 0
+    for match in _CODE_FENCE_RE.finditer(text):
+        before = text[last_end : match.start()]
+        parts.append(html.escape(before))
+
+        lang = match.group(1).strip()
+        code = match.group(2)
+        code_escaped = html.escape(code)
+        if lang:
+            parts.append(
+                f'<pre><code class="language-{html.escape(lang)}">{code_escaped}</code></pre>'
+            )
+        else:
+            parts.append(f"<pre><code>{code_escaped}</code></pre>")
+        last_end = match.end()
+
+    parts.append(html.escape(text[last_end:]))
+    return "".join(parts), ParseMode.HTML
 
 
 def _format_user_id(user_id: int | None, anonymize: bool) -> str | int | None:
