@@ -19,7 +19,13 @@ from xilma.ai_client import ModelInfo
 from xilma.errors import APIError, UserVisibleError
 from xilma.logging_setup import setup_logging
 from xilma.services.sponsor import normalize_channel, parse_channels_csv
-from xilma.utils import log_incoming_message, log_outgoing_message, new_reference_id, reply_text
+from xilma.utils import (
+    format_telegram_message_chunks,
+    log_incoming_message,
+    log_outgoing_message,
+    new_reference_id,
+    reply_text,
+)
 
 
 ADMIN_MENU, WAITING_INPUT = range(2)
@@ -103,10 +109,15 @@ async def _persist_setting(
     spec = SPEC_BY_KEY.get(key)
     if spec is None:
         raise ConfigValidationError(texts.CONFIG_INVALID_KEY)
+    previous = config.data
     config.update(key, raw_value)
     value = getattr(config.data, spec.attr)
     db_value = serialize_setting_value(spec, value)
-    await db.set_setting(key, db_value)
+    try:
+        await db.set_setting(key, db_value)
+    except Exception:
+        config._config = previous  # roll back in-memory state if persistence fails
+        raise
 
 
 async def _sync_sponsor_channels(config: ConfigStore, sponsor_service, db) -> None:
@@ -531,27 +542,50 @@ async def _send_panel_message(
     user_id = update.effective_user.id if update.effective_user else None
 
     if update.callback_query and update.callback_query.message:
-        try:
-            message = await update.callback_query.message.edit_text(
-                text,
-                reply_markup=reply_markup,
+        chunks = format_telegram_message_chunks(text)
+        if len(chunks) == 1:
+            formatted_text, parse_mode = chunks[0]
+            try:
+                message = await update.callback_query.message.edit_text(
+                    formatted_text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode,
+                )
+            except BadRequest as exc:
+                if "message is not modified" not in str(exc).lower():
+                    raise
+                return
+            log_outgoing_message(
+                message,
+                formatted_text,
+                reference_id=reference_id,
+                user_id=user_id,
+                anonymize=anonymize,
+                include_body=include_body,
+                include_headers=include_headers,
+                kwargs={"reply_markup": reply_markup, "parse_mode": parse_mode},
             )
-        except BadRequest as exc:
-            if "message is not modified" not in str(exc).lower():
-                raise
             return
-        log_outgoing_message(
-            message,
-            text,
-            reference_id=reference_id,
-            user_id=user_id,
-            anonymize=anonymize,
-            include_body=include_body,
-            include_headers=include_headers,
-            kwargs={"reply_markup": reply_markup},
-        )
-    else:
-        await reply_text(update, text, context, reference_id=reference_id, reply_markup=reply_markup)
+
+        for idx, (chunk, parse_mode) in enumerate(chunks):
+            chunk_markup = reply_markup if idx == len(chunks) - 1 else None
+            await reply_text(
+                update,
+                chunk,
+                context,
+                reference_id=reference_id,
+                reply_markup=chunk_markup,
+                parse_mode=parse_mode,
+            )
+        return
+
+    await reply_text(
+        update,
+        text,
+        context,
+        reference_id=reference_id,
+        reply_markup=reply_markup,
+    )
 
 
 def _log_admin_request(update: Update, context: ContextTypes.DEFAULT_TYPE, reference_id: str) -> None:

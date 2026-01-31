@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.error import BadRequest
@@ -23,6 +24,7 @@ from xilma.utils import (
 
 logger = logging.getLogger("xilma.handlers.user")
 USER_MODELS_PAGE_SIZE = 12
+CHAT_RATE_LIMIT_SECONDS = 1.0
 
 
 def _log_incoming_if_config(
@@ -178,27 +180,44 @@ async def _send_user_panel_message(
     user_id = update.effective_user.id if update.effective_user else None
 
     if update.callback_query and update.callback_query.message:
-        try:
-            message = await update.callback_query.message.edit_text(
-                text,
-                reply_markup=reply_markup,
+        chunks = format_telegram_message_chunks(text)
+        if len(chunks) == 1:
+            formatted_text, parse_mode = chunks[0]
+            try:
+                message = await update.callback_query.message.edit_text(
+                    formatted_text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode,
+                )
+            except BadRequest as exc:
+                if "message is not modified" not in str(exc).lower():
+                    raise
+                return
+            log_outgoing_message(
+                message,
+                formatted_text,
+                reference_id=reference_id,
+                user_id=user_id,
+                anonymize=anonymize,
+                include_body=include_body,
+                include_headers=include_headers,
+                kwargs={"reply_markup": reply_markup, "parse_mode": parse_mode},
             )
-        except BadRequest as exc:
-            if "message is not modified" not in str(exc).lower():
-                raise
             return
-        log_outgoing_message(
-            message,
-            text,
-            reference_id=reference_id,
-            user_id=user_id,
-            anonymize=anonymize,
-            include_body=include_body,
-            include_headers=include_headers,
-            kwargs={"reply_markup": reply_markup},
-        )
-    else:
-        await reply_text(update, text, context, reference_id=reference_id, reply_markup=reply_markup)
+
+        for idx, (chunk, parse_mode) in enumerate(chunks):
+            chunk_markup = reply_markup if idx == len(chunks) - 1 else None
+            await reply_text(
+                update,
+                chunk,
+                context,
+                reference_id=reference_id,
+                reply_markup=chunk_markup,
+                parse_mode=parse_mode,
+            )
+        return
+
+    await reply_text(update, text, context, reference_id=reference_id, reply_markup=reply_markup)
 
 
 async def _show_user_panel(
@@ -450,7 +469,14 @@ async def models_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if mode in {"cheap", "expensive"} and not models_info:
         lines.extend(["", texts.MODELS_SORT_FAILED])
     lines.extend(["", texts.MODELS_SORT_USAGE])
-    await reply_text(update, "\n".join(lines), context, reference_id=reference_id)
+    for chunk, parse_mode in format_telegram_message_chunks("\n".join(lines)):
+        await reply_text(
+            update,
+            chunk,
+            context,
+            reference_id=reference_id,
+            parse_mode=parse_mode,
+        )
 
 
 async def new_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -530,6 +556,13 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if not await _ensure_sponsor_membership(update, context, reference_id):
         return
+
+    last_ts = context.user_data.get("last_chat_ts")
+    now = time.monotonic()
+    if isinstance(last_ts, (int, float)) and now - last_ts < CHAT_RATE_LIMIT_SECONDS:
+        await reply_text(update, texts.RATE_LIMITED, context, reference_id=reference_id)
+        return
+    context.user_data["last_chat_ts"] = now
 
     if not config.data.api_key:
         raise UserVisibleError(texts.API_KEY_MISSING)

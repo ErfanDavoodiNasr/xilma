@@ -142,6 +142,10 @@ def build_application() -> Application:
     application.add_handler(admin_conversation)
 
     application.add_handler(CommandHandler("start", user_handlers.start))
+    application.add_handler(CommandHandler("help", user_handlers.help_command))
+    application.add_handler(CommandHandler("new", user_handlers.new_chat))
+    application.add_handler(CommandHandler("model", user_handlers.set_model))
+    application.add_handler(CommandHandler("models", user_handlers.models_command))
     application.add_handler(
         CallbackQueryHandler(user_handlers.check_membership, pattern="^check_membership$")
     )
