@@ -37,6 +37,8 @@ BTN_REMOVE = "حذف"
 BTN_USERS = "👥 Users"
 BTN_NEXT = "بعدی"
 BTN_PREV = "قبلی"
+BTN_OLDER = "قدیمی‌تر"
+BTN_NEWER = "جدیدتر"
 BTN_SAVE = "ذخیره"
 BTN_CLEAR = "پاک‌کردن"
 BTN_REFRESH = "به‌روزرسانی"
@@ -50,6 +52,8 @@ BTN_SEARCH_CLEAR = "پاک‌کردن جستجو"
 BTN_USER_MODEL = "انتخاب مدل"
 BTN_USER_NEW_CHAT = "گفتگوی جدید"
 BTN_USERS_INFO = "اطلاعات کاربری"
+BTN_USER_CHATS = "🗂️ گفتگوهای من"
+BTN_DELETE_CHAT = "🗑️ حذف گفتگو"
 
 ICON_EDIT = "✏️ "
 ICON_REMOVE = "🗑️ "
@@ -69,6 +73,16 @@ ADMIN_USERS_PROMPT = "Select a user for details."
 ADMIN_USERS_EMPTY = "No users yet."
 ADMIN_USERS_NOT_FOUND = "User not found."
 ADMIN_USER_DETAILS_TITLE = "User Details"
+ADMIN_USER_CHATS = "💬 Chats"
+ADMIN_USER_CHATS_TITLE = "User Chats"
+ADMIN_USER_CHATS_PAGE = "Page {page}/{pages}"
+ADMIN_USER_CHATS_EMPTY = "No chats yet."
+ADMIN_CHAT_TITLE = "Chat: {title}"
+ADMIN_CHAT_PAGE = "Page {page}/{pages}"
+ADMIN_CHAT_DELETED = "Deleted"
+ADMIN_CHAT_EMPTY = "No messages."
+ADMIN_CHAT_USER = "User ID: {user_id}"
+ADMIN_CHAT_MODEL = "Model: {model}"
 ADMIN_MODELS_TITLE = "Allowed Models"
 ADMIN_MODELS_HINT = "مدل‌های مجاز را انتخاب کنید."
 ADMIN_MODELS_EMPTY = "مدلی یافت نشد."
@@ -119,7 +133,7 @@ MODELS_SORT_FAILED = "مرتب‌سازی بر اساس قیمت ممکن نیس
 USER_PANEL_HEADER = "✨ زیلما"
 USER_PANEL_WELCOME = "سلام! 👋 من «زیلما» هستم."
 USER_PANEL_SUBTITLE = "دستیار هوش مصنوعی شما برای پاسخ‌های دقیق و سریع 🤖"
-USER_PANEL_ACTIONS = "🟢 شروع سریع: گفتگو جدید | انتخاب مدل | اطلاعات کاربری"
+USER_PANEL_ACTIONS = "🟢 شروع سریع: گفتگو جدید | انتخاب مدل | اطلاعات کاربری | گفتگوهای من"
 USER_PANEL_HINT = "👇 یکی رو انتخاب کن:"
 USER_PANEL_START_HINT = "↩️ بازگشت به منو: /start"
 USER_PANEL_USER = "کاربر"
@@ -135,6 +149,20 @@ USER_MODEL_UPDATED = "مدل شما به‌روزرسانی شد."
 USER_COMMAND_FALLBACK = "از دکمه‌های پنل استفاده کنید."
 USER_INFO_TITLE = "اطلاعات کاربری"
 USER_INFO_HINT = "برای بازگشت به پنل از دکمه پایین استفاده کنید."
+USER_CHATS_TITLE = "گفتگوهای شما"
+USER_CHATS_PAGE = "صفحه {page}/{pages}"
+USER_CHATS_HINT = "برای مشاهده یا انتخاب، یکی را بزنید."
+USER_CHATS_EMPTY = "هنوز گفتگویی ندارید."
+USER_CHAT_TITLE = "گفتگو: {title}"
+USER_CHAT_PAGE = "صفحه {page}/{pages}"
+USER_CHAT_EMPTY = "این گفتگو هنوز پیامی ندارد."
+USER_CHAT_SELECTED = "گفتگو انتخاب شد."
+USER_CHAT_UNTITLED = "گفتگو {chat_id}"
+USER_CHAT_NOT_FOUND = "گفتگو پیدا نشد."
+USER_CHAT_ERROR = "⚠️ پاسخ ناموفق بود. لطفاً دوباره تلاش کنید."
+USER_CHAT_DELETED = "گفتگو حذف شد."
+USER_CHAT_CREATED = "گفتگوی جدید ساخته شد."
+USER_CHAT_MODEL = "مدل: {model}"
 
 CONFIG_UPDATED = "Settings با موفقیت ذخیره شد."
 CONFIG_INVALID_KEY = "Setting انتخاب‌شده معتبر نیست."

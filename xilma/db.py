@@ -196,3 +196,264 @@ class Database:
                 telegram_id,
             )
             return dict(row) if row else None
+
+    async def create_conversation(
+        self,
+        *,
+        telegram_id: int,
+        title: str | None = None,
+    ) -> int:
+        await self.connect()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO conversations (telegram_id, title)
+                VALUES ($1, $2)
+                RETURNING id
+                """,
+                telegram_id,
+                title,
+            )
+            return int(row["id"])
+
+    async def get_conversation(
+        self,
+        *,
+        telegram_id: int,
+        conversation_id: int,
+        include_deleted: bool = False,
+    ) -> dict[str, Any] | None:
+        await self.connect()
+        clause = "" if include_deleted else "AND deleted_at IS NULL"
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"""
+                SELECT
+                    id,
+                    telegram_id,
+                    title,
+                    created_at,
+                    updated_at,
+                    deleted_at
+                FROM conversations
+                WHERE id = $1 AND telegram_id = $2 {clause}
+                """,
+                conversation_id,
+                telegram_id,
+            )
+            return dict(row) if row else None
+
+    async def get_conversation_by_id(
+        self,
+        conversation_id: int,
+    ) -> dict[str, Any] | None:
+        await self.connect()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT
+                    id,
+                    telegram_id,
+                    title,
+                    created_at,
+                    updated_at,
+                    deleted_at
+                FROM conversations
+                WHERE id = $1
+                """,
+                conversation_id,
+            )
+            return dict(row) if row else None
+
+    async def count_conversations(
+        self,
+        *,
+        telegram_id: int,
+        include_deleted: bool = False,
+    ) -> int:
+        await self.connect()
+        clause = "" if include_deleted else "AND deleted_at IS NULL"
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"""
+                SELECT COUNT(*) AS count
+                FROM conversations
+                WHERE telegram_id = $1 {clause}
+                """,
+                telegram_id,
+            )
+            return int(row["count"] if row else 0)
+
+    async def list_conversations(
+        self,
+        *,
+        telegram_id: int,
+        include_deleted: bool = False,
+        limit: int,
+        offset: int,
+    ) -> list[dict[str, Any]]:
+        await self.connect()
+        clause = "" if include_deleted else "AND deleted_at IS NULL"
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT
+                    id,
+                    telegram_id,
+                    title,
+                    created_at,
+                    updated_at,
+                    deleted_at
+                FROM conversations
+                WHERE telegram_id = $1 {clause}
+                ORDER BY updated_at DESC, id DESC
+                LIMIT $2 OFFSET $3
+                """,
+                telegram_id,
+                limit,
+                offset,
+            )
+            return [dict(row) for row in rows]
+
+    async def list_conversations_with_last_message(
+        self,
+        *,
+        telegram_id: int,
+        include_deleted: bool = False,
+        limit: int,
+        offset: int,
+    ) -> list[dict[str, Any]]:
+        await self.connect()
+        clause = "" if include_deleted else "AND c.deleted_at IS NULL"
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT
+                    c.id,
+                    c.telegram_id,
+                    c.title,
+                    c.created_at,
+                    c.updated_at,
+                    c.deleted_at,
+                    lm.role AS last_role,
+                    lm.is_error AS last_is_error,
+                    lm.created_at AS last_message_at
+                FROM conversations c
+                LEFT JOIN LATERAL (
+                    SELECT role, is_error, created_at
+                    FROM messages m
+                    WHERE m.conversation_id = c.id
+                    ORDER BY m.created_at DESC, m.id DESC
+                    LIMIT 1
+                ) lm ON true
+                WHERE c.telegram_id = $1 {clause}
+                ORDER BY c.updated_at DESC, c.id DESC
+                LIMIT $2 OFFSET $3
+                """,
+                telegram_id,
+                limit,
+                offset,
+            )
+            return [dict(row) for row in rows]
+
+    async def soft_delete_conversation(
+        self,
+        *,
+        telegram_id: int,
+        conversation_id: int,
+    ) -> None:
+        await self.connect()
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE conversations
+                SET deleted_at = NOW(), updated_at = NOW()
+                WHERE id = $1 AND telegram_id = $2 AND deleted_at IS NULL
+                """,
+                conversation_id,
+                telegram_id,
+            )
+
+    async def update_conversation_title(
+        self,
+        *,
+        conversation_id: int,
+        title: str,
+    ) -> None:
+        await self.connect()
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE conversations
+                SET title = $1, updated_at = NOW()
+                WHERE id = $2 AND (title IS NULL OR title = '')
+                """,
+                title,
+                conversation_id,
+            )
+
+    async def count_messages(self, *, conversation_id: int) -> int:
+        await self.connect()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT COUNT(*) AS count FROM messages WHERE conversation_id = $1",
+                conversation_id,
+            )
+            return int(row["count"] if row else 0)
+
+    async def list_messages(
+        self,
+        *,
+        conversation_id: int,
+        limit: int,
+        offset: int,
+    ) -> list[dict[str, Any]]:
+        await self.connect()
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    id,
+                    role,
+                    content,
+                    is_error,
+                    model,
+                    created_at
+                FROM messages
+                WHERE conversation_id = $1
+                ORDER BY created_at ASC, id ASC
+                LIMIT $2 OFFSET $3
+                """,
+                conversation_id,
+                limit,
+                offset,
+            )
+            return [dict(row) for row in rows]
+
+    async def insert_message(
+        self,
+        *,
+        conversation_id: int,
+        role: str,
+        content: str,
+        is_error: bool = False,
+        model: str | None = None,
+    ) -> None:
+        await self.connect()
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    """
+                    INSERT INTO messages (conversation_id, role, content, is_error, model)
+                    VALUES ($1, $2, $3, $4, $5)
+                    """,
+                    conversation_id,
+                    role,
+                    content,
+                    is_error,
+                    model,
+                )
+                await conn.execute(
+                    "UPDATE conversations SET updated_at = NOW() WHERE id = $1",
+                    conversation_id,
+                )

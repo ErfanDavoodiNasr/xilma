@@ -32,6 +32,8 @@ ADMIN_MENU, WAITING_INPUT = range(2)
 USERS_PAGE_SIZE = 10
 MODELS_PAGE_SIZE = 12
 DEFAULT_MODELS_PAGE_SIZE = 12
+ADMIN_CHATS_PAGE_SIZE = 8
+ADMIN_CHAT_MESSAGES_PAGE_SIZE = 10
 
 
 def _set_sponsor_menu_active(context: ContextTypes.DEFAULT_TYPE, active: bool) -> None:
@@ -178,6 +180,23 @@ def _format_timestamp(value: Any) -> str:
         return str(value)
 
 
+def _format_conversation_title(conversation: dict[str, Any]) -> str:
+    title = conversation.get("title")
+    if title:
+        return title
+    return f"Chat {conversation.get('id')}"
+
+
+def _format_conversation_label(conversation: dict[str, Any]) -> str:
+    title = _format_conversation_title(conversation)
+    updated = _format_timestamp(conversation.get("updated_at"))
+    deleted = conversation.get("deleted_at")
+    error_flag = "⚠️ " if conversation.get("last_is_error") else ""
+    if deleted:
+        return f"🗑️ {error_flag}{title} • {updated}"
+    return f"💬 {error_flag}{title} • {updated}"
+
+
 def _build_users_menu(
     users: list[dict[str, Any]], page: int, pages: int
 ) -> InlineKeyboardMarkup:
@@ -205,10 +224,83 @@ def _build_users_menu(
     return InlineKeyboardMarkup(keyboard)
 
 
-def _build_user_detail_menu() -> InlineKeyboardMarkup:
+def _build_user_detail_menu(telegram_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton(text=texts.BTN_BACK, callback_data="users:list")]]
+        [
+            [InlineKeyboardButton(text=texts.ADMIN_USER_CHATS, callback_data=f"users:chats:{telegram_id}")],
+            [InlineKeyboardButton(text=texts.BTN_BACK, callback_data="users:list")],
+        ]
     )
+
+
+def _build_user_chats_menu(
+    conversations: list[dict[str, Any]],
+    *,
+    telegram_id: int,
+    page: int,
+    pages: int,
+) -> InlineKeyboardMarkup:
+    keyboard: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                text=_format_conversation_label(convo),
+                callback_data=f"users:chat:open:{convo['id']}",
+            )
+        ]
+        for convo in conversations
+    ]
+    nav_row: list[InlineKeyboardButton] = []
+    if page > 1:
+        nav_row.append(
+            InlineKeyboardButton(
+                text=texts.BTN_PREV,
+                callback_data=f"users:chats:page:{telegram_id}:{page - 1}",
+            )
+        )
+    if page < pages:
+        nav_row.append(
+            InlineKeyboardButton(
+                text=texts.BTN_NEXT,
+                callback_data=f"users:chats:page:{telegram_id}:{page + 1}",
+            )
+        )
+    if nav_row:
+        keyboard.append(nav_row)
+    keyboard.append(
+        [InlineKeyboardButton(text=texts.BTN_BACK, callback_data=f"users:view:{telegram_id}")]
+    )
+    return InlineKeyboardMarkup(keyboard)
+
+
+def _build_admin_chat_view_menu(
+    *,
+    telegram_id: int,
+    conversation_id: int,
+    page: int,
+    pages: int,
+) -> InlineKeyboardMarkup:
+    nav_row: list[InlineKeyboardButton] = []
+    if page < pages:
+        nav_row.append(
+            InlineKeyboardButton(
+                text=texts.BTN_OLDER,
+                callback_data=f"users:chat:page:{conversation_id}:{page + 1}",
+            )
+        )
+    if page > 1:
+        nav_row.append(
+            InlineKeyboardButton(
+                text=texts.BTN_NEWER,
+                callback_data=f"users:chat:page:{conversation_id}:{page - 1}",
+            )
+        )
+    keyboard: list[list[InlineKeyboardButton]] = []
+    if nav_row:
+        keyboard.append(nav_row)
+    keyboard.append(
+        [InlineKeyboardButton(text=texts.BTN_BACK, callback_data=f"users:chats:{telegram_id}")]
+    )
+    return InlineKeyboardMarkup(keyboard)
 
 
 def _build_models_menu(
@@ -761,7 +853,7 @@ async def _show_user_details(
             update,
             context,
             text=texts.ADMIN_USERS_NOT_FOUND,
-            reply_markup=_build_user_detail_menu(),
+            reply_markup=_build_user_detail_menu(telegram_id),
             reference_id=reference_id,
         )
         return
@@ -788,7 +880,148 @@ async def _show_user_details(
         update,
         context,
         text="\n".join(lines),
-        reply_markup=_build_user_detail_menu(),
+        reply_markup=_build_user_detail_menu(telegram_id),
+        reference_id=reference_id,
+    )
+
+
+async def _show_user_chats(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    reference_id: str,
+    *,
+    telegram_id: int,
+    page: int,
+) -> None:
+    db = context.application.bot_data.get("db")
+    if db is None:
+        raise RuntimeError("DB missing")
+
+    total = await db.count_conversations(telegram_id=telegram_id, include_deleted=True)
+    if total == 0:
+        await _send_panel_message(
+            update,
+            context,
+            text=texts.ADMIN_USER_CHATS_EMPTY,
+            reply_markup=_build_user_detail_menu(telegram_id),
+            reference_id=reference_id,
+        )
+        return
+
+    pages = max(1, math.ceil(total / ADMIN_CHATS_PAGE_SIZE))
+    page = max(1, min(page, pages))
+    conversations = await db.list_conversations_with_last_message(
+        telegram_id=telegram_id,
+        include_deleted=True,
+        limit=ADMIN_CHATS_PAGE_SIZE,
+        offset=(page - 1) * ADMIN_CHATS_PAGE_SIZE,
+    )
+
+    lines = [
+        texts.ADMIN_USER_CHATS_TITLE,
+        texts.ADMIN_USER_CHATS_PAGE.format(page=page, pages=pages),
+        texts.ADMIN_CHAT_USER.format(user_id=telegram_id),
+        "",
+    ]
+    for convo in conversations:
+        lines.append(f"- {_format_conversation_label(convo)}")
+
+    await _send_panel_message(
+        update,
+        context,
+        text="\n".join(lines),
+        reply_markup=_build_user_chats_menu(
+            conversations,
+            telegram_id=telegram_id,
+            page=page,
+            pages=pages,
+        ),
+        reference_id=reference_id,
+    )
+
+
+async def _show_admin_chat_view(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    reference_id: str,
+    *,
+    conversation_id: int,
+    page: int,
+) -> None:
+    db = context.application.bot_data.get("db")
+    if db is None:
+        raise RuntimeError("DB missing")
+
+    convo = await db.get_conversation_by_id(conversation_id)
+    if not convo:
+        await _send_panel_message(
+            update,
+            context,
+            text=texts.ADMIN_USERS_NOT_FOUND,
+            reply_markup=_build_main_menu(),
+            reference_id=reference_id,
+        )
+        return
+
+    telegram_id = int(convo.get("telegram_id"))
+    total = await db.count_messages(conversation_id=conversation_id)
+    if total == 0:
+        await _send_panel_message(
+            update,
+            context,
+            text=texts.ADMIN_CHAT_EMPTY,
+            reply_markup=_build_admin_chat_view_menu(
+                telegram_id=telegram_id,
+                conversation_id=conversation_id,
+                page=1,
+                pages=1,
+            ),
+            reference_id=reference_id,
+        )
+        return
+
+    pages = max(1, math.ceil(total / ADMIN_CHAT_MESSAGES_PAGE_SIZE))
+    page = max(1, min(page, pages))
+    start = max(total - (page * ADMIN_CHAT_MESSAGES_PAGE_SIZE), 0)
+    limit = min(ADMIN_CHAT_MESSAGES_PAGE_SIZE, total - start)
+    messages = await db.list_messages(
+        conversation_id=conversation_id,
+        limit=limit,
+        offset=start,
+    )
+
+    deleted_flag = texts.ADMIN_CHAT_DELETED if convo.get("deleted_at") else "-"
+    lines = [
+        texts.ADMIN_CHAT_TITLE.format(title=_format_conversation_title(convo)),
+        texts.ADMIN_CHAT_PAGE.format(page=page, pages=pages),
+        texts.ADMIN_CHAT_USER.format(user_id=telegram_id),
+        f"{texts.ADMIN_CHAT_DELETED}: {deleted_flag}",
+        "",
+    ]
+    for message in messages:
+        role = message.get("role")
+        if message.get("is_error"):
+            prefix = "⚠️"
+        else:
+            prefix = "👤" if role == "user" else "🤖" if role == "assistant" else "⚙️"
+        created = _format_timestamp(message.get("created_at"))
+        lines.append(f"{prefix} ({created})")
+        model = message.get("model")
+        if model:
+            lines.append(texts.ADMIN_CHAT_MODEL.format(model=model))
+        lines.append(str(message.get("content", "")).strip())
+        lines.append("")
+
+    await _send_panel_message(
+        update,
+        context,
+        text="\n".join(lines).strip(),
+        reply_markup=_build_admin_chat_view_menu(
+            telegram_id=telegram_id,
+            conversation_id=conversation_id,
+            page=page,
+            pages=pages,
+        ),
         reference_id=reference_id,
     )
 
@@ -1005,6 +1238,58 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data.pop("config_pending", None)
         page = context.user_data.get("users_page", 1)
         await _show_users_page(update, context, reference_id, page=page)
+        return ADMIN_MENU
+
+    if data.startswith("users:chats:page:"):
+        parts = data.split(":", 4)
+        if len(parts) < 5:
+            return ADMIN_MENU
+        try:
+            telegram_id = int(parts[3])
+            page = int(parts[4])
+        except ValueError:
+            return ADMIN_MENU
+        await _show_user_chats(update, context, reference_id, telegram_id=telegram_id, page=page)
+        return ADMIN_MENU
+
+    if data.startswith("users:chats:"):
+        try:
+            telegram_id = int(data.split(":", 2)[2])
+        except ValueError:
+            return ADMIN_MENU
+        await _show_user_chats(update, context, reference_id, telegram_id=telegram_id, page=1)
+        return ADMIN_MENU
+
+    if data.startswith("users:chat:open:"):
+        try:
+            conversation_id = int(data.split(":", 3)[3])
+        except ValueError:
+            return ADMIN_MENU
+        await _show_admin_chat_view(
+            update,
+            context,
+            reference_id,
+            conversation_id=conversation_id,
+            page=1,
+        )
+        return ADMIN_MENU
+
+    if data.startswith("users:chat:page:"):
+        parts = data.split(":", 4)
+        if len(parts) < 5:
+            return ADMIN_MENU
+        try:
+            conversation_id = int(parts[3])
+            page = int(parts[4])
+        except ValueError:
+            return ADMIN_MENU
+        await _show_admin_chat_view(
+            update,
+            context,
+            reference_id,
+            conversation_id=conversation_id,
+            page=page,
+        )
         return ADMIN_MENU
 
     if data == "users:back":
