@@ -11,6 +11,8 @@ from telegram import Message, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
+TELEGRAM_MESSAGE_LIMIT = 4096
+
 
 def anonymize_user_id(user_id: int) -> str:
     digest = hashlib.sha256(str(user_id).encode("utf-8")).hexdigest()
@@ -47,6 +49,130 @@ def format_telegram_message(text: str) -> tuple[str, str | None]:
 
     parts.append(html.escape(text[last_end:]))
     return "".join(parts), ParseMode.HTML
+
+
+def _parse_code_fences(text: str) -> list[tuple[str, str, str]]:
+    segments: list[tuple[str, str, str]] = []
+    last_end = 0
+    for match in _CODE_FENCE_RE.finditer(text):
+        if match.start() > last_end:
+            segments.append(("text", "", text[last_end:match.start()]))
+        segments.append(("code", match.group(1).strip(), match.group(2)))
+        last_end = match.end()
+    if last_end < len(text):
+        segments.append(("text", "", text[last_end:]))
+    return segments
+
+
+def _make_code_block(lang: str, content: str) -> str:
+    header = f"```{lang}\n" if lang else "```\n"
+    if content.endswith("\n"):
+        return f"{header}{content}```"
+    return f"{header}{content}\n```"
+
+
+def _fits_in_telegram(text: str, *, limit: int) -> bool:
+    formatted, _ = format_telegram_message(text)
+    return len(formatted) <= limit
+
+
+def _split_hard(text: str, *, limit: int, fits) -> list[str]:
+    parts: list[str] = []
+    start = 0
+    while start < len(text):
+        lo = start + 1
+        hi = len(text)
+        best = None
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if fits(text[start:mid]):
+                best = mid
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        if best is None:
+            best = start + 1
+        parts.append(text[start:best])
+        start = best
+    return parts
+
+
+def _split_by_limit(text: str, *, limit: int, wrap=None) -> list[str]:
+    if not text:
+        return [""]
+
+    def fits(piece: str) -> bool:
+        candidate = wrap(piece) if wrap else piece
+        return _fits_in_telegram(candidate, limit=limit)
+
+    if fits(text):
+        return [text]
+
+    parts: list[str] = []
+    buffer = ""
+    lines = text.splitlines(keepends=True) or [text]
+
+    for line in lines:
+        candidate = buffer + line
+        if buffer and fits(candidate):
+            buffer = candidate
+            continue
+        if buffer:
+            parts.append(buffer)
+            buffer = ""
+        if fits(line):
+            buffer = line
+            continue
+        parts.extend(_split_hard(line, limit=limit, fits=fits))
+        buffer = ""
+
+    if buffer:
+        parts.append(buffer)
+    return parts
+
+
+def split_telegram_message(text: str, *, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
+    if not text:
+        return [""]
+
+    chunks: list[str] = []
+    current = ""
+
+    def append_piece(piece: str) -> None:
+        nonlocal current
+        if not current:
+            current = piece
+            return
+        if _fits_in_telegram(current + piece, limit=limit):
+            current += piece
+            return
+        chunks.append(current)
+        current = piece
+
+    segments = _parse_code_fences(text)
+    for kind, lang, content in segments:
+        if kind == "text":
+            for piece in _split_by_limit(content, limit=limit):
+                append_piece(piece)
+        else:
+            for code_piece in _split_by_limit(
+                content, limit=limit, wrap=lambda part, l=lang: _make_code_block(l, part)
+            ):
+                append_piece(_make_code_block(lang, code_piece))
+
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def format_telegram_message_chunks(
+    text: str, *, limit: int = TELEGRAM_MESSAGE_LIMIT
+) -> list[tuple[str, str | None]]:
+    chunks = split_telegram_message(text, limit=limit)
+    formatted_chunks: list[tuple[str, str | None]] = []
+    for chunk in chunks:
+        formatted_chunks.append(format_telegram_message(chunk))
+    return formatted_chunks
 
 
 def _format_user_id(user_id: int | None, anonymize: bool) -> str | int | None:
