@@ -240,7 +240,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     history.append({"role": "user", "content": update.message.text})
     history.append({"role": "assistant", "content": response.content})
     max_messages = max(config.data.max_history_messages, 0)
-    if max_messages:
+    if max_messages <= 0:
+        history = []
+    else:
         history = history[-max_messages:]
     context.user_data["history"] = history
 
