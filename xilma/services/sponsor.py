@@ -129,7 +129,7 @@ class SponsorService:
                     "membership_check_failed",
                     extra={"channel": channel.chat_id, "error": str(last_error)},
                 )
-                return True
+                return False
             if member.status not in {"member", "administrator", "creator"}:
                 return False
         return True

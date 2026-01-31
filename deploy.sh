@@ -94,6 +94,15 @@ mask_secret() {
   fi
 }
 
+mask_database_url() {
+  local url="$1"
+  if [ -z "$url" ]; then
+    printf ''
+    return 0
+  fi
+  printf '%s' "$url" | sed -E 's#(://[^:/]+):[^@]+@#\1:****@#'
+}
+
 confirm() {
   local prompt="$1"
   local ans
@@ -336,7 +345,7 @@ if [ "$MODE" = "deploy" ]; then
   echo "POSTGRES_DB:     $POSTGRES_DB"
   echo "POSTGRES_USER:   $POSTGRES_USER"
   echo "POSTGRES_PASSWORD: $(mask_secret "$POSTGRES_PASSWORD")"
-  echo "DATABASE_URL:    $DATABASE_URL"
+  echo "DATABASE_URL:    $(mask_database_url "$DATABASE_URL")"
 else
   echo "Ref:             ${REPO_BRANCH:-<keep current>}"
   echo "Env sync:        ${SYNC_ENV}"

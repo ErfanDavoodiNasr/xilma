@@ -36,26 +36,30 @@ class Database:
         if not MIGRATIONS_DIR.exists():
             return
         async with self._pool.acquire() as conn:
-            await conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS schema_migrations (
-                    name TEXT PRIMARY KEY,
-                    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
-                """
-            )
-            rows = await conn.fetch("SELECT name FROM schema_migrations")
-            applied = {row["name"] for row in rows}
-            for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
-                if path.name in applied:
-                    continue
-                sql = path.read_text(encoding="utf-8")
-                async with conn.transaction():
-                    await conn.execute(sql)
-                    await conn.execute(
-                        "INSERT INTO schema_migrations (name) VALUES ($1)",
-                        path.name,
-                    )
+            await conn.execute("SELECT pg_advisory_lock($1)", 54912047)
+            try:
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS schema_migrations (
+                        name TEXT PRIMARY KEY,
+                        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                rows = await conn.fetch("SELECT name FROM schema_migrations")
+                applied = {row["name"] for row in rows}
+                for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
+                    if path.name in applied:
+                        continue
+                    sql = path.read_text(encoding="utf-8")
+                    async with conn.transaction():
+                        await conn.execute(sql)
+                        await conn.execute(
+                            "INSERT INTO schema_migrations (name) VALUES ($1)",
+                            path.name,
+                        )
+            finally:
+                await conn.execute("SELECT pg_advisory_unlock($1)", 54912047)
 
     async def ensure_settings_defaults(self, defaults: dict[str, str | None]) -> None:
         await self.connect()
