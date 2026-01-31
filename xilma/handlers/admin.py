@@ -4,6 +4,7 @@ import math
 from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes, ConversationHandler
 
 from xilma import texts
@@ -211,10 +212,15 @@ async def _send_panel_message(
     user_id = update.effective_user.id if update.effective_user else None
 
     if update.callback_query and update.callback_query.message:
-        message = await update.callback_query.message.edit_text(
-            text,
-            reply_markup=reply_markup,
-        )
+        try:
+            message = await update.callback_query.message.edit_text(
+                text,
+                reply_markup=reply_markup,
+            )
+        except BadRequest as exc:
+            if "message is not modified" not in str(exc).lower():
+                raise
+            return
         log_outgoing_message(
             message,
             text,
